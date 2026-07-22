@@ -20,9 +20,68 @@ my %MODE_KEYS = map { $_ => 1 } qw(visible_range session structure zigzag missed
 my %EVENT_KEYS = map { $_ => 1 } qw(bos choch both);
 my %SCOPE_KEYS = map { $_ => 1 } qw(internal external both);
 
-sub new { bless {}, shift }
-sub reset {}
+sub new {
+    my ($class, %args) = @_;
+    my $self = {
+        mode           => $args{mode} // 'session',
+        price_levels   => $args{price_levels} // 100,
+        value_area_pct => $args{value_area_pct} // 0.70,
+        context_bars   => $args{context_bars} // 500,
+    };
+    return bless $self, $class;
+}
+sub reset {
+    my ($self) = @_;
+    $self->{last_result} = undef;
+}
 sub get_values { [] }
+
+sub calculate_for_window {
+    my ($self, $market_data, $start, $end, $full_smc) = @_;
+    
+    my $max_idx = $market_data->size() - 1;
+    my $candles = $market_data->get_slice(0, $max_idx);
+    
+    my $settings = {
+        mode           => $self->{mode},
+        price_levels   => $self->{price_levels},
+        value_area_pct => $self->{value_area_pct},
+        context_bars   => $self->{context_bars},
+    };
+    
+    my $res = $self->compute(
+        candles           => $candles,
+        max_visible_index => $end,
+        visible_start     => $start,
+        settings          => $settings,
+        structure_events  => $full_smc // [],
+    );
+    
+    $self->{last_result} = $res;
+    return $res;
+}
+
+sub get_profiles {
+    my ($self) = @_;
+    return [] unless $self->{last_result} && $self->{last_result}{profiles};
+    
+    my @mapped;
+    for my $prof (@{ $self->{last_result}{profiles} }) {
+        push @mapped, {
+            %$prof,
+            start_idx => $prof->{start_index},
+            end_idx   => $prof->{end_index},
+            vah_price => $prof->{vah},
+            val_price => $prof->{val},
+        };
+    }
+    return \@mapped;
+}
+
+sub get_pocs {
+    my ($self) = @_;
+    return $self->{last_result} ? $self->{last_result}{pocs} : [];
+}
 
 sub compute {
     my ($class_or_self, %args) = @_;

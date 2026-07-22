@@ -18,9 +18,69 @@ my %SOURCE_KEYS = map { $_ => 1 } qw(open high low close hl2 hlc3 ohlc4);
 my %ANCHOR_KEYS = map { $_ => 1 } qw(session_start market_open confirmed_bos confirmed_choch volume_profile_poc manual);
 my %SCOPE_KEYS  = map { $_ => 1 } qw(internal external both);
 
-sub new { bless {}, shift }
-sub reset {}
+sub new {
+    my ($class, %args) = @_;
+    my $self = {
+        anchor_session     => $args{anchor_session} // 1,
+        anchor_market_open => $args{anchor_market_open} // 1,
+        anchor_bos         => $args{anchor_bos} // 1,
+        anchor_choch       => $args{anchor_choch} // 1,
+        anchor_poc         => $args{anchor_poc} // 1,
+        context_bars       => $args{context_bars} // 500,
+    };
+    return bless $self, $class;
+}
+sub reset {
+    my ($self) = @_;
+    $self->{last_result} = undef;
+}
 sub get_values { [] }
+
+sub calculate_for_window {
+    my ($self, $market_data, $start, $end, $full_smc, $vp_profs) = @_;
+    
+    my $max_idx = $market_data->size() - 1;
+    my $candles = $market_data->get_slice(0, $max_idx);
+    
+    my $settings = {
+        anchor_session     => $self->{anchor_session},
+        anchor_market_open => $self->{anchor_market_open},
+        anchor_bos         => $self->{anchor_bos},
+        anchor_choch       => $self->{anchor_choch},
+        anchor_poc         => $self->{anchor_poc},
+        context_bars       => $self->{context_bars},
+    };
+    
+    my $tf = $market_data->{current_tf} // '1m';
+    
+    my $res = $self->compute(
+        candles          => $candles,
+        max_visible_index => $end,
+        timeframe        => $tf,
+        settings         => $settings,
+        structure_events => $full_smc // [],
+        poc_events       => $vp_profs // [],
+    );
+    
+    $self->{last_result} = $res;
+    return $res;
+}
+
+sub get_anchors {
+    my ($self) = @_;
+    return [] unless $self->{last_result} && $self->{last_result}{segments};
+    
+    my @mapped;
+    for my $seg (@{ $self->{last_result}{segments} }) {
+        push @mapped, {
+            anchor_type => $seg->{anchor_type},
+            start_idx   => $seg->{start_index},
+            end_idx     => $seg->{end_index},
+            vwap_values => [ map { $_->{value} } @{ $seg->{points} // [] } ],
+        };
+    }
+    return \@mapped;
+}
 
 sub compute_missed_pivot_auto {
     my ($class_or_self, %args) = @_;
