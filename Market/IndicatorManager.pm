@@ -6,11 +6,82 @@ use warnings;
 sub new {
     my ($class) = @_;
     my $self = {
-        indicators => {}, # Hash para registrar instancias de indicadores
+        indicators         => {}, # Hash para registrar instancias de indicadores
+        internal_zigzag_tf => 'Chart', # Temporalidad para InternalZigZag ('Chart', '1m', '5m', etc.)
     };
     bless $self, $class;
     return $self;
 }
+
+sub set_internal_zigzag_tf {
+    my ($self, $tf) = @_;
+    $self->{internal_zigzag_tf} = $tf // 'Chart';
+}
+
+sub recalculate_internal_zigzag {
+    my ($self, $market_data) = @_;
+    
+    my $max_idx = $market_data->size() - 1;
+    return if $max_idx < 0;
+    
+    my $candles = $market_data->get_slice(0, $max_idx);
+    my $timeframe = $market_data->{current_tf} // '1m';
+    my $atr_series = $self->{computed_cache}->{ATR} // [];
+
+    if (exists $self->{indicators}->{InternalZigZag}) {
+        my $iz_tf_opt = $self->{internal_zigzag_tf} // 'Chart';
+        my $target_tf = ($iz_tf_opt eq 'Chart' || !defined $iz_tf_opt) ? $timeframe : $iz_tf_opt;
+        
+        my $iz_candles;
+        if ($target_tf eq $timeframe) {
+            $iz_candles = $candles;
+        } else {
+            $iz_candles = $market_data->get_candles_for_tf($target_tf);
+        }
+        $iz_candles = $candles unless $iz_candles && @$iz_candles;
+        
+        my $iz_atr_series = ($target_tf eq $timeframe)
+            ? $atr_series
+            : $self->_compute_atr_for_candles($iz_candles, 14);
+            
+        my $max_iz_idx = $#$iz_candles;
+        
+        my $izz_ind = $self->{indicators}->{InternalZigZag};
+        my $raw_res = $izz_ind->compute(
+            candles           => $iz_candles,
+            atr_series        => $iz_atr_series,
+            max_visible_index => $max_iz_idx,
+            timeframe         => $target_tf,
+        );
+        
+        my $res;
+        if ($target_tf eq $timeframe) {
+            $res = $raw_res;
+        } else {
+            $res = $self->_map_iz_result_to_chart_candles($raw_res, $candles);
+        }
+        
+        $self->{computed_cache}->{InternalZigZag_raw} = $res;
+        $self->{computed_cache}->{InternalZigZag} = $res->{pivots} // [];
+    }
+
+    if (exists $self->{indicators}->{ZonaInterna}) {
+        my $zi_ind = $self->{indicators}->{ZonaInterna};
+        my $zz_data = $self->{computed_cache}->{InternalZigZag_raw};
+        if (!$zz_data || !ref($zz_data->{segments}) || scalar(@{$zz_data->{segments}}) < 1) {
+            $zz_data = $self->{computed_cache}->{ZigZagTrend_raw};
+        }
+        
+        my $res = $zi_ind->compute(
+            zigzag => $zz_data,
+            max_visible_index => $max_idx,
+            timeframe => $timeframe,
+        );
+        $self->{computed_cache}->{ZonaInterna_raw} = $res;
+        $self->{computed_cache}->{ZonaInterna} = $res->{levels} // [];
+    }
+}
+
 
 sub register {
     my ($self, $name, $indicator) = @_;
@@ -104,13 +175,38 @@ sub recalculate_all {
     
     # -- 3. InternalZigZag --
     if (exists $self->{indicators}->{InternalZigZag}) {
+        my $iz_tf_opt = $self->{internal_zigzag_tf} // 'Chart';
+        my $target_tf = ($iz_tf_opt eq 'Chart' || !defined $iz_tf_opt) ? $timeframe : $iz_tf_opt;
+        
+        my $iz_candles;
+        if ($target_tf eq $timeframe) {
+            $iz_candles = $candles;
+        } else {
+            $iz_candles = $market_data->get_candles_for_tf($target_tf);
+        }
+        $iz_candles = $candles unless $iz_candles && @$iz_candles;
+        
+        my $iz_atr_series = ($target_tf eq $timeframe)
+            ? $atr_series
+            : $self->_compute_atr_for_candles($iz_candles, 14);
+            
+        my $max_iz_idx = $#$iz_candles;
+        
         my $izz_ind = $self->{indicators}->{InternalZigZag};
-        my $res = $izz_ind->compute(
-            candles => $candles,
-            atr_series => $atr_series,
-            max_visible_index => $max_idx,
-            timeframe => $timeframe,
+        my $raw_res = $izz_ind->compute(
+            candles           => $iz_candles,
+            atr_series        => $iz_atr_series,
+            max_visible_index => $max_iz_idx,
+            timeframe         => $target_tf,
         );
+        
+        my $res;
+        if ($target_tf eq $timeframe) {
+            $res = $raw_res;
+        } else {
+            $res = $self->_map_iz_result_to_chart_candles($raw_res, $candles);
+        }
+        
         $self->{computed_cache}->{InternalZigZag_raw} = $res;
         $self->{computed_cache}->{InternalZigZag} = $res->{pivots} // [];
     }
@@ -282,6 +378,155 @@ sub _build_smc_candles_array {
     }
 
     return \@smc_candles;
+}
+
+sub _compute_atr_for_candles {
+    my ($self, $candles, $period) = @_;
+    $period //= 14;
+    return [] unless $candles && @$candles;
+
+    my @atr;
+    my @tr;
+    for my $i (0 .. $#$candles) {
+        my $c = $candles->[$i];
+        if ($i == 0) {
+            $tr[$i] = ($c->{high} // 0) - ($c->{low} // 0);
+        } else {
+            my $prev_c = $candles->[$i - 1]{close} // $c->{open};
+            my $h_l = ($c->{high} // 0) - ($c->{low} // 0);
+            my $h_pc = abs(($c->{high} // 0) - $prev_c);
+            my $l_pc = abs(($c->{low} // 0) - $prev_c);
+            $tr[$i] = $h_l > $h_pc ? ($h_l > $l_pc ? $h_l : $l_pc) : ($h_pc > $l_pc ? $h_pc : $l_pc);
+        }
+
+        if ($i < $period - 1) {
+            my $sum = 0;
+            $sum += $tr[$_] for (0 .. $i);
+            $atr[$i] = $sum / ($i + 1);
+        } elsif ($i == $period - 1) {
+            my $sum = 0;
+            $sum += $tr[$_] for (0 .. $period - 1);
+            $atr[$i] = $sum / $period;
+        } else {
+            $atr[$i] = ($atr[$i - 1] * ($period - 1) + $tr[$i]) / $period;
+        }
+    }
+    return \@atr;
+}
+
+sub _tf_to_bar_count {
+    my ($tf) = @_;
+    return 1 unless defined $tf;
+    if ($tf =~ /^(\d+)m$/) { return $1; }
+    if ($tf =~ /^(\d+)h$/) { return $1 * 60; }
+    if ($tf eq 'D') { return 1440; }
+    if ($tf eq 'W') { return 10080; }
+    return 1;
+}
+
+sub _map_iz_result_to_chart_candles {
+    my ($self, $iz_raw, $chart_candles) = @_;
+    return $iz_raw unless $iz_raw && $chart_candles && @$chart_candles;
+
+    my $n_chart = scalar @$chart_candles;
+    return $iz_raw if $n_chart == 0;
+
+    my $target_tf = $iz_raw->{timeframe} // '1m';
+    my $bar_span  = _tf_to_bar_count($target_tf);
+
+    # Binary search helper: find largest index in chart_candles where timestamp <= target_ts in O(log N) time
+    my $find_base_idx = sub {
+        my ($target_ts) = @_;
+        return 0 unless defined $target_ts;
+
+        my $low = 0;
+        my $high = $n_chart - 1;
+        my $ans = 0;
+
+        while ($low <= $high) {
+            my $mid = int(($low + $high) / 2);
+            my $mid_ts = $chart_candles->[$mid]{timestamp};
+            if (!defined $mid_ts) {
+                $low = $mid + 1;
+                next;
+            }
+
+            if ($mid_ts le $target_ts) {
+                $ans = $mid;
+                $low = $mid + 1;
+            } else {
+                $high = $mid - 1;
+            }
+        }
+        return $ans;
+    };
+
+    # Fine tune helper: scan STRICTLY within the HTF candle boundary [base_idx .. base_idx + bar_span - 1]
+    my $find_chart_idx = sub {
+        my ($target_ts, $price, $type) = @_;
+        return undef unless defined $target_ts;
+
+        my $base_idx = $find_base_idx->($target_ts);
+        return $base_idx unless defined $price && defined $type;
+
+        my $best_idx = $base_idx;
+        my $max_scan = $base_idx + $bar_span - 1;
+        $max_scan = $n_chart - 1 if $max_scan >= $n_chart;
+
+        my $is_high_kind = ($type eq 'HIGH' || $type eq 'high');
+
+        for (my $j = $base_idx; $j <= $max_scan; $j++) {
+            my $c = $chart_candles->[$j];
+            if ($is_high_kind) {
+                if (defined $c->{high} && abs($c->{high} - $price) < 0.0001) {
+                    $best_idx = $j;
+                    last;
+                }
+            } else {
+                if (defined $c->{low} && abs($c->{low} - $price) < 0.0001) {
+                    $best_idx = $j;
+                    last;
+                }
+            }
+        }
+        return $best_idx;
+    };
+
+    # Map pivots
+    my @mapped_pivots;
+    if ($iz_raw->{pivots}) {
+        for my $p (@{ $iz_raw->{pivots} }) {
+            my %m_p = %$p;
+            $m_p{index} = $find_chart_idx->($p->{time}, $p->{price}, $p->{type});
+            push @mapped_pivots, \%m_p;
+        }
+    }
+
+    my $map_seg = sub {
+        my ($seg) = @_;
+        return undef unless $seg;
+        my %m_s = %$seg;
+        $m_s{start_index} = $find_chart_idx->($seg->{start_time}, $seg->{start_price}, $seg->{start_kind});
+        $m_s{end_index}   = $find_chart_idx->($seg->{end_time},   $seg->{end_price},   $seg->{end_kind});
+        return \%m_s;
+    };
+
+    my @mapped_segments;
+    if ($iz_raw->{segments}) {
+        for my $seg (@{ $iz_raw->{segments} }) {
+            my $m_seg = $map_seg->($seg);
+            push @mapped_segments, $m_seg if $m_seg;
+        }
+    }
+
+    my $mapped_active = $map_seg->($iz_raw->{active_segment});
+
+    return {
+        %$iz_raw,
+        pivots         => \@mapped_pivots,
+        segments       => \@mapped_segments,
+        active_segment => $mapped_active,
+    };
 }
 
 1;

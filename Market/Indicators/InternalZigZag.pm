@@ -162,11 +162,11 @@ sub _candidate {
         type           => $type,
         kind           => $type eq 'HIGH' ? 'high' : 'low',
         index          => $center,
-        time           => $c->{time},
+        time           => $c->{timestamp} // $c->{time},
         price          => $price + 0,
         confirmed      => 1,
         confirmed_at   => $confirm_idx,
-        confirmed_time => $confirm->{time},
+        confirmed_time => $confirm->{timestamp} // $confirm->{time},
         pivot_length   => $self->{pivot_length},
         atr            => defined $atr->[$center] ? $atr->[$center] + 0 : undef,
     };

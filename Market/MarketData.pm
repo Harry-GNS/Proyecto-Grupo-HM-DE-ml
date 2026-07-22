@@ -115,6 +115,35 @@ sub _active_array {
     return $self->{data}->{ $self->{current_tf} } // [];
 }
 
+sub get_candles_for_tf {
+    my ($self, $tf) = @_;
+    if (!defined $tf || $tf eq 'Chart' || $tf eq $self->{current_tf}) {
+        return $self->_active_array();
+    }
+    
+    my $base_array = $self->{data}->{$tf};
+    unless ($base_array && @$base_array) {
+        return $self->_active_array();
+    }
+    
+    if ($self->{replay_mode}) {
+        my $last_active = $self->last_candle();
+        return [] unless $last_active;
+        my $limit_ts = $last_active->{timestamp};
+        return [] unless defined $limit_ts;
+        
+        my @filtered;
+        for my $c (@$base_array) {
+            last if defined $c->{timestamp} && $c->{timestamp} gt $limit_ts;
+            push @filtered, $c;
+        }
+        return \@filtered;
+    } else {
+        return $base_array;
+    }
+}
+
+
 # =====================================================================
 # SISTEMA REPLAY: Filtrado Estricto de Datos
 # =====================================================================

@@ -53,6 +53,8 @@ sub new {
         manual_max_atr  => 0,
         drag_start_atr  => 0,
         show_smc        => 1,
+        iz_timeframe    => 'Chart', # Temporalidad para ZigZag Interno ('Chart', '1m', '5m', '15m', '1h', '2h', '4h')
+
 
         # Hash de visibilidad granular de overlays
         # Cada clave controla una capa de dibujo independiente.
@@ -660,6 +662,16 @@ sub set_timeframe {
     $self->reset_view();
 }
 
+sub set_internal_zigzag_tf {
+    my ($self, $tf) = @_;
+    $self->{iz_timeframe} = $tf // 'Chart';
+    if ($self->{indicators}) {
+        $self->{indicators}->set_internal_zigzag_tf($self->{iz_timeframe});
+        $self->{indicators}->recalculate_internal_zigzag($self->{market_data});
+    }
+    $self->request_render();
+}
+
 sub _horizontal_zoom {
     my ($self, $delta, $x_or_right) = @_;
     
@@ -1215,7 +1227,99 @@ sub _build_sidebar {
     $sep->('Estructura');
     $make_toggle->('zigzag',           'ZZ  Macro ZigZag');
     $make_toggle->('internal_zigzag',  'IZ  Internal ZigZag');
-    $make_toggle->('bos_choch',        'BB  BOS / CHOCH');
+
+    # Selector de temporalidad desplegable INLINE para ZigZag Interno
+    $self->{iz_timeframe} //= 'Chart';
+    my $iz_expanded = 0;
+
+    my $iz_accordion_frame = $scroll_frame->Frame(-bg => $bg_panel);
+    $iz_accordion_frame->pack(-fill => 'x', -padx => 4, -pady => [1, 3]);
+
+    my $iz_header_btn;
+    my $iz_options_container = $iz_accordion_frame->Frame(-bg => '#131722');
+    
+    my $update_header_text = sub {
+        my $tf_lbl = ($self->{iz_timeframe} eq 'Chart') ? 'Grafico' : $self->{iz_timeframe};
+        my $arrow = $iz_expanded ? '^' : 'v';
+        $iz_header_btn->configure(-text => "  TF IZ: [$tf_lbl]  $arrow");
+    };
+
+    $iz_header_btn = $iz_accordion_frame->Button(
+        -text             => "  TF IZ: [Grafico]  v",
+        -bg               => '#2A2E39',
+        -fg               => '#D1D4DC',
+        -activebackground => '#383D4A',
+        -activeforeground => '#FFFFFF',
+        -relief           => 'flat',
+        -anchor           => 'w',
+        -font             => 'Helvetica 8 bold',
+        -padx             => 6,
+        -pady             => 3,
+        -cursor           => 'hand2',
+        -command          => sub {
+            $iz_expanded = !$iz_expanded;
+            if ($iz_expanded) {
+                $iz_options_container->pack(-fill => 'x', -padx => 2, -pady => 2);
+            } else {
+                $iz_options_container->packForget();
+            }
+            $update_header_text->();
+        },
+    );
+    $iz_header_btn->pack(-fill => 'x');
+
+    my @iz_tf_list = (
+        ['Grafico (Auto)' => 'Chart'],
+        ['1m'  => '1m'],
+        ['5m'  => '5m'],
+        ['15m' => '15m'],
+        ['1h'  => '1h'],
+        ['2h'  => '2h'],
+        ['4h'  => '4h'],
+    );
+
+    my %opt_buttons;
+    my $update_button_styles = sub {
+        for my $item (@iz_tf_list) {
+            my $v = $item->[1];
+            if (exists $opt_buttons{$v}) {
+                my $is_sel = ($self->{iz_timeframe} eq $v);
+                $opt_buttons{$v}->configure(
+                    -bg               => $is_sel ? '#2962FF' : '#2A2E39',
+                    -fg               => $is_sel ? '#FFFFFF' : '#9CA3AF',
+                    -activebackground => $is_sel ? '#1E4FD8' : '#383D4A',
+                );
+            }
+        }
+    };
+
+    for my $item (@iz_tf_list) {
+        my ($label, $val) = @$item;
+        my $is_sel = ($self->{iz_timeframe} eq $val);
+        my $b = $iz_options_container->Button(
+            -text             => "  $label",
+            -bg               => $is_sel ? '#2962FF' : '#2A2E39',
+            -fg               => $is_sel ? '#FFFFFF' : '#9CA3AF',
+            -activebackground => $is_sel ? '#1E4FD8' : '#383D4A',
+            -activeforeground => '#FFFFFF',
+            -relief           => 'flat',
+            -anchor           => 'w',
+            -font             => 'Helvetica 8',
+            -padx             => 10,
+            -pady             => 2,
+            -cursor           => 'hand2',
+            -command          => sub {
+                $self->set_internal_zigzag_tf($val);
+                $update_button_styles->();
+                $update_header_text->();
+            },
+        );
+        $b->pack(-fill => 'x', -pady => 1);
+        $opt_buttons{$val} = $b;
+    }
+    $update_header_text->();
+
+$make_toggle->('bos_choch',        'BB  BOS / CHOCH');
     $make_toggle->('structure_labels', 'HH  HH / HL / LH / LL');
     $make_toggle->('fvg',              'FV  Fair Value Gap');
 

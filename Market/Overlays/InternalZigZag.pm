@@ -7,9 +7,9 @@ sub new {
     my ($class, %args) = @_;
     my $self = {
         canvas         => $args{canvas},
-        color_bullish  => $args{color_bullish} || '#ffb74d',  # naranja suave
-        color_bearish  => $args{color_bearish}  || '#b39ddb',  # morado suave
-        line_width     => $args{line_width}     || 1,
+        color_bullish  => $args{color_bullish} || '#FF9800',  # naranja vibrante
+        color_bearish  => $args{color_bearish}  || '#AB47BC',  # morado vibrante
+        line_width     => $args{line_width}     || 2,
     };
     bless $self, $class;
     return $self;
@@ -27,17 +27,8 @@ sub render {
 
     $start_idx_viewport //= 0;
 
-    my $width        = $c->width;
-    my $height       = $c->height;
-    my $min_val      = $scale->{min_val};
-    my $max_val      = $scale->{max_val};
-    my $visible_bars = $scale->{visible_bars};
-    my $offset_frac  = $scale->{offset};
-
-    my $range = $max_val - $min_val;
-    return if $range <= 0;
-
-    my $candle_width = $width / $visible_bars;
+    my $drawable_w = $scale->_drawable_width();
+    return if $drawable_w <= 0;
 
     # 1. Recuperar segmentos y pivots
     my @all_segments = @{ $izz_raw->{segments} // [] };
@@ -51,13 +42,13 @@ sub render {
         my $rel_from = $seg->{start_index} - $start_idx_viewport;
         my $rel_to   = $seg->{end_index}   - $start_idx_viewport;
 
-        my $x1 = ($rel_from - $offset_frac) * $candle_width + ($candle_width / 2);
-        my $x2 = ($rel_to   - $offset_frac) * $candle_width + ($candle_width / 2);
+        my $x1 = $scale->index_to_center_x($rel_from);
+        my $x2 = $scale->index_to_center_x($rel_to);
 
-        my $y1 = $height - ((($seg->{start_price} - $min_val) / $range) * $height);
-        my $y2 = $height - ((($seg->{end_price}   - $min_val) / $range) * $height);
+        my $y1 = $scale->value_to_y($seg->{start_price});
+        my $y2 = $scale->value_to_y($seg->{end_price});
 
-        next if ($x1 < 0 && $x2 < 0) || ($x1 > $width && $x2 > $width);
+        next if ($x1 < 0 && $x2 < 0) || ($x1 > $drawable_w && $x2 > $drawable_w);
 
         my $color = ($seg->{direction} // '') eq 'bullish' ? $self->{color_bullish} : $self->{color_bearish};
 
@@ -65,7 +56,6 @@ sub render {
             $x1, $y1, $x2, $y2,
             -fill  => $color,
             -width => $self->{line_width},
-            -dash  => '.',
             -tags  => ['internal_zigzag_overlay'],
         );
     }
@@ -76,11 +66,11 @@ sub render {
         next unless defined $p->{index} && defined $p->{price};
 
         my $rel = $p->{index} - $start_idx_viewport;
-        my $px  = ($rel - $offset_frac) * $candle_width + ($candle_width / 2);
-        my $py  = $height - ((($p->{price} - $min_val) / $range) * $height);
-        my $r   = 2;
+        my $px  = $scale->index_to_center_x($rel);
+        my $py  = $scale->value_to_y($p->{price});
+        my $r   = 3;
 
-        next if $px < -$r || $px > $width + $r;
+        next if $px < -$r || $px > $drawable_w + $r;
 
         my $color = $p->{type} eq 'HIGH' ? $self->{color_bearish} : $self->{color_bullish};
 
@@ -91,8 +81,6 @@ sub render {
             -tags    => ['internal_zigzag_overlay'],
         );
     }
-
-    $c->lower('internal_zigzag_overlay');
 }
 
 1;
