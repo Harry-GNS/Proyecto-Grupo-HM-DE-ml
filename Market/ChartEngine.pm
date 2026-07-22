@@ -176,7 +176,7 @@ sub render {
     # =========================================================
     # Overlay de Liquidez (BSL / SSL / EQH / EQL / Sweeps)
     # =========================================================
-    my $liq_slice = $self->{indicators}->slice_array('Liquidity', $start, $end);
+    my $liq_slice = $self->{indicators}->get_raw('Liquidity');
     $self->{liquidity_overlay}->render($scale, $liq_slice, $start, $vis);
 
     # ========================================================
@@ -918,27 +918,20 @@ sub _clamp_offset {
 
 sub enable_replay_selection {
     my ($self) = @_;
-    # Activar la bandera de espera
     $self->{awaiting_replay_selection} = 1;
-    # Feedback visual: Cambiamos el cursor del ratón a una cruz
     $self->{price_canvas}->configure(-cursor => 'crosshair');
-    print "Modo Replay Seleccion: Haz clic sobre la vela donde deseas iniciar el corte.\n";
 }
 
 sub start_replay {
     my ($self, $index) = @_;
-    
-    # Limpiar el estado de espera y devolver el cursor a la normalidad
+    # Clear waiting flag and reset cursor
     $self->{awaiting_replay_selection} = 0;
     $self->{price_canvas}->configure(-cursor => 'arrow');
-
-    # Enviar el índice exacto clickeado al backend de datos
+    # Send clicked index to market data
     $self->{market_data}->start_replay($index);
-    
-    # Recalcular indicadores hasta el corte
-    $self->{indicators}->reset_all();
-    $self->{indicators}->recalculate_all($self->{market_data});
-    
+    # Defer indicator preparation until play is pressed
+    $self->{replay_prepared} = 0;
+    # Reset view without full recalculation
     $self->reset_view();
 }
 
@@ -978,8 +971,15 @@ sub step_replay {
 sub play_replay {
     my ($self) = @_;
     return if $self->{replay_timer};
-    $self->{replay_speed} = 1000; # Velocidad Normal: 1 segundo por vela
+    # Set default replay speed (fast) if not already set by fast_forward_replay
+    $self->{replay_speed} = 250; # Velocidad Mejorada: 250 ms por vela
+    # Prepare indicators on first play if not already prepared
+    if (!$self->{replay_prepared}) {
+        $self->{indicators}->recalculate_all($self->{market_data});
+        $self->{replay_prepared} = 1;
+    }
     $self->_replay_loop();
+    # duplicate call removed
 }
 
 sub fast_forward_replay {

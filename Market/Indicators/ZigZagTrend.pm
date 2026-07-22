@@ -59,6 +59,7 @@ sub new {
         _last_high_pivot => undef,
         _last_low_pivot  => undef,
         _active_segment  => undef,
+
         _segments        => [],
     };
 

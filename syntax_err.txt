@@ -1,0 +1,2 @@
+Can't locate Market/Panels/Scales.pm in @INC (you may need to install the Market::Panels::Scales module) (@INC entries checked: /home/harry/perl5/lib/perl5/5.42.2/x86_64-linux-thread-multi /home/harry/perl5/lib/perl5/5.42.2 /home/harry/perl5/lib/perl5/x86_64-linux-thread-multi /home/harry/perl5/lib/perl5 /usr/local/lib64/perl5/5.42 /usr/local/share/perl5/5.42 /usr/lib64/perl5/vendor_perl /usr/share/perl5/vendor_perl /usr/lib64/perl5 /usr/share/perl5) at Market/ChartEngine.pm line 7.
+BEGIN failed--compilation aborted at Market/ChartEngine.pm line 7.
