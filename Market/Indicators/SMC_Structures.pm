@@ -80,15 +80,25 @@ sub compute {
 
     $NEXT_ID = 1;
 
+    my $self = ref($class_or_self) ? $class_or_self : undef;
+    my $cache_obj;
+    if ($self) {
+        $self->{_cache_pivots} //= {};
+        $cache_obj = $self->{_cache_pivots};
+    }
+    
     my ($pivots, $major_high, $major_low) = _build_pivots(
-        $candles, $atr, $max_idx, $tf, $external_sens, $internal_sens,
+        $candles, $atr, $max_idx, $tf, $external_sens, $internal_sens, $cache_obj
     );
     my $structures = _build_structures($candles, $pivots, $max_idx, $tf, $liq_evts);
     my $trailing_extremes = _build_trailing_extremes(
         $candles, $pivots, $structures, $max_idx,
     );
-    my $fvgs       = _build_fvgs(
-        $candles, $atr, $max_idx, $tf, $structures, $config,
+    if ($self) {
+        $self->{_cache_fvgs} //= {};
+    }
+    my $fvgs = _build_fvgs(
+        $candles, $atr, $max_idx, $tf, $structures, $config, $self ? $self->{_cache_fvgs} : undef
     );
     my $fib_sets   = _build_fib_sets($candles, $pivots, $structures, $max_idx, $tf);
     my $pd_zones   = _build_premium_discount($pivots, $structures, $fib_sets, $max_idx, $tf);
@@ -109,13 +119,13 @@ sub compute {
 # ============================================================
 
 sub _build_pivots {
-    my ($candles, $atr_series, $max_idx, $tf, $external_sens, $internal_sens) = @_;
+    my ($candles, $atr_series, $max_idx, $tf, $external_sens, $internal_sens, $cache_obj) = @_;
     $external_sens = _positive_int($external_sens, MXWLL_EXT_SENS);
     $internal_sens = _positive_int($internal_sens, MXWLL_INT_SENS);
 
     my @raw = (
-        @{ _mxwll_pivots_for_length($candles, $atr_series, $max_idx, $tf, $external_sens, 'external') },
-        @{ _mxwll_pivots_for_length($candles, $atr_series, $max_idx, $tf, $internal_sens, 'internal') },
+        @{ _mxwll_pivots_for_length($candles, $atr_series, $max_idx, $tf, $external_sens, 'external', $cache_obj) },
+        @{ _mxwll_pivots_for_length($candles, $atr_series, $max_idx, $tf, $internal_sens, 'internal', $cache_obj) },
     );
 
     @raw = sort {
@@ -150,15 +160,27 @@ sub _scope_sort {
 }
 
 sub _mxwll_pivots_for_length {
-    my ($candles, $atr_series, $max_idx, $tf, $length, $scope) = @_;
+    my ($candles, $atr_series, $max_idx, $tf, $length, $scope, $cache_obj) = @_;
 
-    my @out;
-    my $intra_calc = 0;
-    my $prev_upaxis = 0.0;
-    my $prev_dnaxis = 0.0;
+    $cache_obj->{$scope} //= { max_idx => -1, out => [], intra_calc => 0, prev_upaxis => 0.0, prev_dnaxis => 0.0 };
+    my $c = $cache_obj->{$scope};
+    
+    if ($max_idx < $c->{max_idx}) {
+        $c->{max_idx} = -1;
+        $c->{out} = [];
+        $c->{intra_calc} = 0;
+        $c->{prev_upaxis} = 0.0;
+        $c->{prev_dnaxis} = 0.0;
+    }
+    
+    my @out = @{ $c->{out} };
+    my $intra_calc = $c->{intra_calc};
+    my $prev_upaxis = $c->{prev_upaxis};
+    my $prev_dnaxis = $c->{prev_dnaxis};
     my $rank = $scope eq 'external' ? 'major' : 'minor';
 
-    for my $i (0 .. $max_idx) {
+    my $start_idx = $c->{max_idx} + 1;
+    for my $i ($start_idx .. $max_idx) {
         last if $i > $#$candles;
         next unless $i > $length + 1;
 
@@ -201,6 +223,11 @@ sub _mxwll_pivots_for_length {
             $prev_dnaxis = $pivot->{low} // $prev_dnaxis;
         }
     }
+    $c->{max_idx} = $max_idx;
+    $c->{out} = [ @out ];
+    $c->{intra_calc} = $intra_calc;
+    $c->{prev_upaxis} = $prev_upaxis;
+    $c->{prev_dnaxis} = $prev_dnaxis;
 
     return \@out;
 }
@@ -712,17 +739,31 @@ sub _near_liq {
 # ============================================================
 
 sub _build_fvgs {
-    my ($candles, $atr_series, $max_idx, $tf, $structures, $config) = @_;
+    my ($candles, $atr_series, $max_idx, $tf, $structures, $config, $cache_obj) = @_;
     $config //= {};
     my $auto_threshold = exists $config->{fairValueGapsAutoThreshold}
         ? ($config->{fairValueGapsAutoThreshold} ? 1 : 0)
         : 1;
 
-    my @active;
-    my %seen;
-    my $cum_abs_delta = 0;
+    $cache_obj //= {};
+    $cache_obj->{max_idx} //= -1;
+    $cache_obj->{active} //= [];
+    $cache_obj->{seen} //= {};
+    $cache_obj->{cum_abs_delta} //= 0;
+    if ($max_idx < $cache_obj->{max_idx}) {
+        $cache_obj->{max_idx} = -1;
+        $cache_obj->{active} = [];
+        $cache_obj->{seen} = {};
+        $cache_obj->{cum_abs_delta} = 0;
+    }
+    
+    my @active = @{ $cache_obj->{active} };
+    my %seen = %{ $cache_obj->{seen} };
+    my $cum_abs_delta = $cache_obj->{cum_abs_delta};
 
-    for my $i (0 .. $max_idx) {
+    my $start_idx = $cache_obj->{max_idx} + 1;
+
+    for my $i ($start_idx .. $max_idx) {
         last if $i > $#$candles;
         my $bar_delta_percent;
         if ($i > 0) {
@@ -821,6 +862,11 @@ sub _build_fvgs {
             }
         }
     }
+
+    $cache_obj->{max_idx} = $max_idx;
+    $cache_obj->{active} = [ @active ];
+    $cache_obj->{seen} = { %seen };
+    $cache_obj->{cum_abs_delta} = $cum_abs_delta;
 
     for my $fvg (@active) {
         $fvg->{status} = 'active';

@@ -958,7 +958,6 @@ sub step_replay {
     $self->{market_data}->step_replay($steps);
     
     # Los indicadores y overlays se recalcularán dinámicamente hasta la última vela visible
-    $self->{indicators}->reset_all();
     $self->{indicators}->recalculate_all($self->{market_data});
     
     # Auto-Desplazamiento (Auto-Scroll) si el precio en replay llega al borde de la pantalla

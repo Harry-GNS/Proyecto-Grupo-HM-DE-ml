@@ -149,8 +149,10 @@ sub recalculate_all {
     my $candles = $market_data->get_slice(0, $max_idx);
     my $timeframe = $market_data->{current_tf} // '1m';
     
-    $self->reset_all();
-    $self->{computed_cache} = {};
+    if (($self->{_last_tf} // '') ne $timeframe) {
+        $self->reset_all();
+        $self->{_last_tf} = $timeframe;
+    }
     
     # -- 1. ATR --
     if (exists $self->{indicators}->{ATR}) {

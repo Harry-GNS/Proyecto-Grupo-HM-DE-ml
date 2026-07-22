@@ -54,10 +54,20 @@ sub compute {
         ? $class_or_self
         : $class_or_self->new(%args);
 
+    if (defined $self->{_cache_max_idx} && $max_idx < $self->{_cache_max_idx}) {
+        delete $self->{_cache_max_idx};
+        delete $self->{_cache_pivots};
+    }
+    
+    my $start_idx = 0;
     my @pivots;
     my $len = $self->{pivot_length};
+    if (defined $self->{_cache_max_idx} && $self->{_cache_max_idx} <= $max_idx) {
+        $start_idx = $self->{_cache_max_idx} + 1;
+        @pivots = @{ $self->{_cache_pivots} // [] };
+    }
 
-    for my $confirm_idx (0 .. $max_idx) {
+    for my $confirm_idx ($start_idx .. $max_idx) {
         last if $confirm_idx > $#$candles;
         my $center = $confirm_idx - $len;
         next if $center < $len;
@@ -73,6 +83,9 @@ sub compute {
             $self->_apply_candidate(\@pivots, $candidate);
         }
     }
+    
+    $self->{_cache_max_idx} = $max_idx;
+    $self->{_cache_pivots} = [ map { _copy_hash($_) } @pivots ];
 
     my ($segments, $active_segment) = _segments_from_pivots(\@pivots);
 

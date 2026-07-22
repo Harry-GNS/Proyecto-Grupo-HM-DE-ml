@@ -231,12 +231,19 @@ sub compute {
         ? $class_or_self
         : $class_or_self->new(%args);
 
-    $self->reset if ref($class_or_self);
+    if (defined $self->{_last_idx} && $max_idx < $self->{_last_idx}) {
+        $self->reset;
+        $self->{_last_idx} = undef;
+    }
 
-    for my $i (0 .. $max_idx) {
+    my $start_idx = defined $self->{_last_idx} ? $self->{_last_idx} + 1 : 0;
+    
+    for my $i ($start_idx .. $max_idx) {
         last if $i > $#$candles;
         $self->update_candle($candles->[$i], $i);
     }
+    
+    $self->{_last_idx} = $max_idx;
 
     return {
         values          => $self->get_values,

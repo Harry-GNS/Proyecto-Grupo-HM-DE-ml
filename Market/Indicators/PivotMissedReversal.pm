@@ -48,7 +48,10 @@ sub compute {
     my $self = ref($class_or_self)
         ? $class_or_self
         : $class_or_self->new(%args);
-    $self->reset if ref($class_or_self);
+    if (defined $self->{_last_idx} && $max_idx < $self->{_last_idx}) {
+        $self->reset;
+        $self->{_last_idx} = undef;
+    }
 
     $self->{timeframe} = $args{timeframe} // $self->{timeframe} // '1m';
     $self->{show_regular} = $args{show_regular} ? 1 : 0 if exists $args{show_regular};
@@ -56,10 +59,14 @@ sub compute {
     $self->{length} = _normalize_length($args{length} // $args{pivot_length})
         if defined($args{length}) || defined($args{pivot_length});
 
-    for my $i (0 .. $max_idx) {
+    my $start_idx = defined $self->{_last_idx} ? $self->{_last_idx} + 1 : 0;
+    
+    for my $i ($start_idx .. $max_idx) {
         last if $i > $#$candles;
         $self->update_candle($candles->[$i], $i);
     }
+    
+    $self->{_last_idx} = $max_idx;
 
     return $self->_result($max_idx);
 }

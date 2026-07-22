@@ -53,11 +53,11 @@ sub render {
             my $rel_from = $seg->{x1_index} - $start_idx_viewport;
             my $rel_to   = $seg->{x2_index} - $start_idx_viewport;
 
-            my $x1 = ($rel_from - $offset_frac) * $candle_width + ($candle_width / 2);
-            my $x2 = ($rel_to   - $offset_frac) * $candle_width + ($candle_width / 2);
+            my $x1 = $scale->index_to_center_x($rel_from);
+            my $x2 = $scale->index_to_center_x($rel_to);
 
-            my $y1 = $height - ((($seg->{y1_price} - $min_val) / $range) * $height);
-            my $y2 = $height - ((($seg->{y2_price} - $min_val) / $range) * $height);
+            my $y1 = $scale->value_to_y($seg->{y1_price});
+            my $y2 = $scale->value_to_y($seg->{y2_price});
 
             next if ($x1 < 0 && $x2 < 0) || ($x1 > $width && $x2 > $width);
 
@@ -96,8 +96,8 @@ sub render {
             my $rel_from = $g->{x1_index} - $start_idx_viewport;
             my $rel_to   = $g->{x2_index} - $start_idx_viewport;
 
-            my $x1 = ($rel_from - $offset_frac) * $candle_width + ($candle_width / 2);
-            my $x2 = ($rel_to   - $offset_frac) * $candle_width + ($candle_width / 2);
+            my $x1 = $scale->index_to_center_x($rel_from);
+            my $x2 = $scale->index_to_center_x($rel_to);
             my $y  = $scale->value_to_y($g->{y1_price});
 
             # Dibujar extendiendo hacia la derecha si está activo
@@ -125,7 +125,7 @@ sub render {
             next unless defined $p->{index} && defined $p->{price};
 
             my $rel = $p->{index} - $start_idx_viewport;
-            my $px  = ($rel - $offset_frac) * $candle_width + ($candle_width / 2);
+            my $px  = $scale->index_to_center_x($rel);
             my $py  = $scale->value_to_y($p->{price});
             my $oy  = ($p->{type} // '') eq 'high' ? -12 : 12;
 
@@ -157,7 +157,7 @@ sub render {
             next unless defined $p->{index} && defined $p->{price};
 
             my $rel = $p->{index} - $start_idx_viewport;
-            my $px  = ($rel - $offset_frac) * $candle_width + ($candle_width / 2);
+            my $px  = $scale->index_to_center_x($rel);
             my $py  = $scale->value_to_y($p->{price});
             my $oy  = ($p->{type} // '') eq 'high' ? -12 : 12;
 
