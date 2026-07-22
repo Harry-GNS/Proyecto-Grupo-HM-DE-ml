@@ -60,7 +60,9 @@ showSwingsInp = input.bool(false, 'Show Swing Point Labels (HH/HL/LH/LL)', group
 showHLInp     = input.bool(true,  'Show Strong / Weak High & Low', group=GEN)
 
 // INPUTS — Signal: Internal
-showIntInp       = input.bool(true, 'Show Internal Structure', group=SIG)
+showIntInp = input.bool(true, 'Show Internal Structure', group=SIG)
+showBOSInp = input.bool(true, 'Show BOS alerts', group=SIG, inline='bos')
+showCHoCHInp = input.bool(true, 'Show CHoCH alerts', group=SIG, inline='choch')
 intBullFilterInp = input.string(ALL, 'Internal Bullish Filter', options=[ALL,BOS_S,CHOCH_S], group=SIG)
 intBearFilterInp = input.string(ALL, 'Internal Bearish Filter', options=[ALL,BOS_S,CHOCH_S], group=SIG)
 intConflInp      = input.bool(false,'Internal Confluence Filter', group=SIG,
@@ -718,15 +720,15 @@ if barstate.islastconfirmedhistory or (barstate.isrealtime and newBar)
 // ════════════════════════════════════════════════════════════════════════════
 // ALERTS
 // ════════════════════════════════════════════════════════════════════════════
-alertcondition(currentAlerts.intBullBOS,   'Internal Bullish BOS',    'Internal Bullish BOS formed')
-alertcondition(currentAlerts.intBearBOS,   'Internal Bearish BOS',    'Internal Bearish BOS formed')
-alertcondition(currentAlerts.intBullCHoCH, 'Internal Bullish CHoCH',  'Internal Bullish CHoCH formed')
-alertcondition(currentAlerts.intBearCHoCH, 'Internal Bearish CHoCH',  'Internal Bearish CHoCH formed')
+alertcondition(currentAlerts.intBullBOS and showBOSInp,   'Internal Bullish BOS',    'Internal Bullish BOS formed')
+alertcondition(currentAlerts.intBearBOS and showBOSInp,   'Internal Bearish BOS',    'Internal Bearish BOS formed')
+alertcondition(currentAlerts.intBullCHoCH and showCHoCHInp, 'Internal Bullish CHoCH',  'Internal Bullish CHoCH formed')
+alertcondition(currentAlerts.intBearCHoCH and showCHoCHInp, 'Internal Bearish CHoCH',  'Internal Bearish CHoCH formed')
 
-alertcondition(currentAlerts.swBullBOS,    'Swing Bullish BOS',       'Swing Bullish BOS formed')
-alertcondition(currentAlerts.swBearBOS,    'Swing Bearish BOS',       'Swing Bearish BOS formed')
-alertcondition(currentAlerts.swBullCHoCH,  'Swing Bullish CHoCH',     'Swing Bullish CHoCH formed')
-alertcondition(currentAlerts.swBearCHoCH,  'Swing Bearish CHoCH',     'Swing Bearish CHoCH formed')
+alertcondition(currentAlerts.swBullBOS and showBOSInp,    'Swing Bullish BOS',       'Swing Bullish BOS formed')
+alertcondition(currentAlerts.swBearBOS and showBOSInp,    'Swing Bearish BOS',       'Swing Bearish BOS formed')
+alertcondition(currentAlerts.swBullCHoCH and showCHoCHInp,  'Swing Bullish CHoCH',     'Swing Bullish CHoCH formed')
+alertcondition(currentAlerts.swBearCHoCH and showCHoCHInp,  'Swing Bearish CHoCH',     'Swing Bearish CHoCH formed')
 
 alertcondition(currentAlerts.intBullOBMit, 'Internal Bullish OB Mitigated', 'Price mitigated a bullish internal order block')
 alertcondition(currentAlerts.intBearOBMit, 'Internal Bearish OB Mitigated', 'Price mitigated a bearish internal order block')

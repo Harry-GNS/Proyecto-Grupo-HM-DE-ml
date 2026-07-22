@@ -1319,7 +1319,8 @@ sub _build_sidebar {
     }
     $update_header_text->();
 
-$make_toggle->('bos_choch',        'BB  BOS / CHOCH');
+    $make_toggle->('bos_choch',        'BB  BOS / CHoCH');
+    $make_toggle->('mss',              'MS  MSS (Shift)');
     $make_toggle->('structure_labels', 'HH  HH / HL / LH / LL');
     $make_toggle->('fvg',              'FV  Fair Value Gap');
 

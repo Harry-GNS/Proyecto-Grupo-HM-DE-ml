@@ -54,10 +54,13 @@ sub render {
         }
 
         # ==================================================================
-        # 2. EVENTOS DE RUPTURA (BOS y CHOCH)
+        # 2. EVENTOS DE RUPTURA (BOS y CHOCH y MSS)
         # ==================================================================
-        if ($show->('bos_choch') && exists $punto->{events} && @{ $punto->{events} }) {
+        if (exists $punto->{events} && @{ $punto->{events} }) {
             for my $ev (@{ $punto->{events} }) {
+                my $is_mss = ($ev->{type} eq 'MSS');
+                next if $is_mss && !$show->('mss');
+                next if !$is_mss && !$show->('bos_choch');
                 my $rel_origin = $ev->{origin} - $start_idx_viewport;
                 my $rel_break  = $i;
 
