@@ -86,6 +86,25 @@ sub render {
     my $hist_max_w   = $width * $self->{hist_width_pct};
 
     for my $prof (@$profiles) {
+
+        # === Adaptador: mapea el formato nuevo de compute() al que espera este overlay ===
+        $prof->{start_idx} //= $prof->{start_index};
+        $prof->{end_idx}   //= $prof->{end_index};
+        # POC: ahora el precio está en poc_price ($prof->{poc} es un hash)
+        $prof->{poc} = $prof->{poc_price}
+            if defined $prof->{poc_price} && (!defined $prof->{poc} || ref $prof->{poc});
+        # Histograma: ahora los datos vienen en 'bins' (lista de hashes)
+        if (!defined $prof->{histogram} && $prof->{bins}) {
+            $prof->{histogram} = [ map { $_->{volume} } @{ $prof->{bins} } ];
+            $prof->{range_min} = $prof->{bins}[0]{lower};
+            $prof->{tick_size} = $prof->{bins}[0]{upper} - $prof->{bins}[0]{lower};
+            my ($lo, $hi) = sort { $a <=> $b } ($prof->{val_bin_index} // 0, $prof->{vah_bin_index} // 0);
+            $prof->{va_low}  //= $lo;
+            $prof->{va_high} //= $hi;
+            $prof->{poc_lvl} //= $prof->{poc_bin_index};
+        }
+        # ================================================================================
+
         # Calcular la posición X del perfil en la ventana visible
         my $rel_start = $prof->{start_idx} - $start_idx_vp;
         my $rel_end   = $prof->{end_idx}   - $start_idx_vp;
