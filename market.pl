@@ -147,8 +147,38 @@ use Market::Indicators::SMC_Structures;
 $indicators->register('SMC_Structures', Market::Indicators::SMC_Structures->new(depth => 3));
 
 # Registrar el detector de tendencia ZigZag macro (ChartPrime port, MPL-2.0)
-use Market::Indicators::ZigZag_Trend;
-$indicators->register('ZigZag_Trend', Market::Indicators::ZigZag_Trend->new(prd => 2));
+use Market::Indicators::ZigZagTrend;
+$indicators->register('ZigZagTrend', Market::Indicators::ZigZagTrend->new(swingLength => 150));
+
+# Registrar el detector de tendencia ZigZag estructurado interno estilo SMC
+use Market::Indicators::InternalZigZag;
+$indicators->register('InternalZigZag', Market::Indicators::InternalZigZag->new(
+    pivot_length   => 5,
+    min_leg_bars   => 4,
+    atr_multiplier => 1.0,
+    min_price_move => 0,
+));
+
+# Registrar PMR (Pivot Points High Low & Missed Reversal Levels LuxAlgo)
+use Market::Indicators::PivotMissedReversal;
+$indicators->register('PivotMissedReversal', Market::Indicators::PivotMissedReversal->new(
+    length       => 50,
+    show_regular => 1,
+    show_missed  => 1,
+));
+
+# Registrar la máquina de estados de contexto de mercado (MarketRegime)
+use Market::Indicators::MarketRegime;
+$indicators->register('MarketRegime', Market::Indicators::MarketRegime->new());
+
+# Registrar niveles Fibonacci basados en ZigZag (ZonaInterna)
+use Market::Indicators::ZonaInterna;
+$indicators->register('ZonaInterna', Market::Indicators::ZonaInterna->new(
+    enable618 => 1,
+    enable786 => 1,
+    max_x     => 5,
+    mintick   => 0.25,
+));
 
 # ==============================================================================
 # Fase 2: Infraestructura Analítica de Volumen y VWAP
@@ -210,7 +240,8 @@ open(my $fh, '<', $csv_file) or die "Error: No se pudo abrir el archivo CSV '$cs
 my $header = <$fh>; 
 
 while (my $line = <$fh>) {
-    chomp $line;
+    $line =~ s/[\r\n]//g;
+    $line =~ s/"//g;
     
     # Parsear las columnas (Ajustar el split a ';' si tu CSV está delimitado por punto y coma)
     my ($ts, $open, $high, $low, $close, $volume) = split(/,/, $line);

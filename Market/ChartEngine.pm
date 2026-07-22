@@ -14,6 +14,11 @@ use Market::Overlays::SMC_Structures;
 use Market::Overlays::ZigZag_Trend;
 use Market::Overlays::Volume_Profile;
 use Market::Overlays::Anchored_VWAP;
+use Market::Overlays::InternalZigZag;
+use Market::Overlays::PivotMissedReversal;
+use Market::Overlays::ZonaInterna;
+use Market::Overlays::MarketRegime;
+
 sub new {
     my ($class, %args) = @_;
     
@@ -54,6 +59,13 @@ sub new {
         # 1 = visible, 0 = oculto. El overlay comprueba la clave antes de dibujar.
         visibility => {
             zigzag           => 1,  # ZigZag (LonesomeTheBlue)
+            internal_zigzag  => 1,  # Internal structural ZigZag
+            pivot_missed     => 1,  # PMR Master ON/OFF
+            pmr_regular      => 1,  # PMR Regular pivots/segments
+            pmr_missed       => 1,  # PMR Missed/Ghost pivots
+            pmr_ghost        => 1,  # PMR Horizontal levels
+            zona_interna     => 1,  # ZI Fibonacci retracements
+            market_regime    => 1,  # Market Regime HUD
             bos_choch        => 1,  # Rupturas de Estructura (BOS / CHOCH)
             structure_labels => 1,  # Etiquetas HH / HL / LH / LL
             fvg              => 1,  # Fair Value Gaps
@@ -80,11 +92,15 @@ sub new {
     $self->{price_panel} = Market::Panels::PricePanel->new(canvas => $self->{price_canvas});
     $self->{atr_panel}   = Market::Panels::ATRPanel->new(canvas => $self->{atr_canvas});
 
-    $self->{liquidity_overlay} = Market::Overlays::Liquidity->new(canvas => $self->{price_canvas});
-    $self->{smc_overlay}       = Market::Overlays::SMC_Structures->new(canvas => $self->{price_canvas});
-    $self->{zigzag_overlay}    = Market::Overlays::ZigZag_Trend->new(canvas => $self->{price_canvas});
-    $self->{vp_overlay}        = Market::Overlays::Volume_Profile->new(canvas => $self->{price_canvas});
-    $self->{vwap_overlay}      = Market::Overlays::Anchored_VWAP->new(canvas => $self->{price_canvas});
+    $self->{liquidity_overlay}       = Market::Overlays::Liquidity->new(canvas => $self->{price_canvas});
+    $self->{smc_overlay}             = Market::Overlays::SMC_Structures->new(canvas => $self->{price_canvas});
+    $self->{zigzag_overlay}          = Market::Overlays::ZigZag_Trend->new(canvas => $self->{price_canvas});
+    $self->{vp_overlay}              = Market::Overlays::Volume_Profile->new(canvas => $self->{price_canvas});
+    $self->{vwap_overlay}            = Market::Overlays::Anchored_VWAP->new(canvas => $self->{price_canvas});
+    $self->{internal_zigzag_overlay} = Market::Overlays::InternalZigZag->new(canvas => $self->{price_canvas});
+    $self->{pmr_overlay}             = Market::Overlays::PivotMissedReversal->new(canvas => $self->{price_canvas});
+    $self->{zona_interna_overlay}    = Market::Overlays::ZonaInterna->new(canvas => $self->{price_canvas});
+    $self->{market_regime_overlay}   = Market::Overlays::MarketRegime->new(canvas => $self->{price_canvas});
     $self->bind_events();
     $self->_build_sidebar($args{sidebar}) if defined $args{sidebar};
     return $self;
@@ -175,8 +191,32 @@ sub render {
     # ========================================================
     # Overlay ZigZag (LonesomeTheBlue port)
     # ========================================================
-    my $zz_slice = $self->{indicators}->slice_array('ZigZag_Trend', $start, $end);
-    $self->{zigzag_overlay}->render($scale, $zz_slice, $start, $vis);
+    my $zz_indicator = $self->{indicators}{indicators}{'ZigZagTrend'};
+    $self->{zigzag_overlay}->render($scale, $zz_indicator, $start, $vis);
+
+    # ========================================================
+    # Overlay Internal ZigZag
+    # ========================================================
+    my $izz_raw = $self->{indicators}->get_raw('InternalZigZag');
+    $self->{internal_zigzag_overlay}->render($scale, $izz_raw, $start, $vis);
+
+    # ========================================================
+    # Overlay Pivot Missed Reversal (LuxAlgo)
+    # ========================================================
+    my $pmr_raw = $self->{indicators}->get_raw('PivotMissedReversal');
+    $self->{pmr_overlay}->render($scale, $pmr_raw, $start, $vis);
+
+    # ========================================================
+    # Overlay Zona Interna (Fibonacci Levels)
+    # ========================================================
+    my $zi_levels = $self->{indicators}->get('ZonaInterna');
+    $self->{zona_interna_overlay}->render($scale, $zi_levels, $start, $vis);
+
+    # ========================================================
+    # Overlay Market Regime (HUD context)
+    # ========================================================
+    my $mr_states = $self->{indicators}->get('MarketRegime');
+    $self->{market_regime_overlay}->render($scale, $mr_states, $start, $vis);
 
     # ========================================================
     # Overlay Volume Profile (Fase 2 — Sección 7)
@@ -1067,10 +1107,26 @@ sub _build_sidebar {
 
     # ── Sección: Estructura de Mercado ───────────────────────
     $sep->('Estructura');
-    $make_toggle->('zigzag',           'ZZ  ZigZag');
+    $make_toggle->('zigzag',           'ZZ  Macro ZigZag');
+    $make_toggle->('internal_zigzag',  'IZ  Internal ZigZag');
     $make_toggle->('bos_choch',        'BB  BOS / CHOCH');
     $make_toggle->('structure_labels', 'HH  HH / HL / LH / LL');
     $make_toggle->('fvg',              'FV  Fair Value Gap');
+
+    # ── Sección: PMR LuxAlgo ─────────────────────────────────
+    $sep->('PMR LuxAlgo');
+    $make_toggle->('pivot_missed',     'PM  PMR ON/OFF');
+    $make_toggle->('pmr_regular',      'PR  Pivots Regulares');
+    $make_toggle->('pmr_missed',       'PF  Pivots Fantasma');
+    $make_toggle->('pmr_ghost',        'NF  Niveles Fantasma');
+
+    # ── Sección: Zona Interna (Fibo) ─────────────────────────
+    $sep->('Zona Interna');
+    $make_toggle->('zona_interna',     'FI  ZI Fibonacci');
+
+    # ── Sección: Régimen de Contexto ─────────────────────────
+    $sep->('Régimen de Contexto');
+    $make_toggle->('market_regime',    'HD  HUD Régimen');
 
     # ── Sección: Liquidez ────────────────────────────────────
     $sep->('Liquidez');
