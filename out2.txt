@@ -1,0 +1,1 @@
+Can't locate object method "load_csv" via package "Market::MarketData" at test_ob2.pl line 7.

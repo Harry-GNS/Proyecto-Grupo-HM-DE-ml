@@ -68,8 +68,10 @@ sub new {
             zona_interna     => 1,  # ZI Fibonacci retracements
             market_regime    => 1,  # Market Regime HUD
             bos_choch        => 1,  # Rupturas de Estructura (BOS / CHOCH)
+            mss              => 1,  # Market Structure Shift (MSS)
             structure_labels => 1,  # Etiquetas HH / HL / LH / LL
             fvg              => 1,  # Fair Value Gaps
+            ob               => 1,  # Order Blocks
             bsl              => 1,  # Buy-Side Liquidity
             ssl              => 1,  # Sell-Side Liquidity
             eqh_eql          => 1,  # Equal Highs / Equal Lows
@@ -241,17 +243,19 @@ sub render {
     }
 
     # ========================================================
-    # Overlay Anchored VWAP Multi-Pivot (Fase 2 — Sección 8)
+    # Overlay Anchored VWAP
     # ========================================================
-    if ($vis->{anchored_vwap} // 1) {
+    if ($vis->{vwap_auto_missed_pivot} || $vis->{vwap_manual_show}) {
         my $vwap_indicator = $self->{indicators}{indicators}{'Anchored_VWAP'};
         if (defined $vwap_indicator) {
             my $smc_raw = $self->{indicators}->get_raw('SMC_Structures');
             my $full_smc = $smc_raw ? ($smc_raw->{structures} // []) : [];
             my $vp_ind    = $self->{indicators}{indicators}{'Volume_Profile'};
             my $vp_profs  = defined $vp_ind ? $vp_ind->get_profiles() : [];
-            $vwap_indicator->calculate_for_window(
-                $self->{market_data}, $start, $end, $full_smc, $vp_profs
+            my $pmr_raw   = $self->{indicators}->get_raw('PivotMissedReversal');
+            
+            $vwap_indicator->calculate_for_window_new(
+                $self->{market_data}, $start, $end, $full_smc, $vp_profs, $pmr_raw, $vis
             );
             $self->{vwap_overlay}->render($scale, $vwap_indicator, $start, $vis);
         }
@@ -1321,6 +1325,7 @@ sub _build_sidebar {
     $make_toggle->('mss',              'MS  MSS (Shift)');
     $make_toggle->('structure_labels', 'HH  HH / HL / LH / LL');
     $make_toggle->('fvg',              'FV  Fair Value Gap');
+    $make_toggle->('ob',               'OB  Order Blocks');
 
     # ── Sección: PMR LuxAlgo ─────────────────────────────────
     $sep->('PMR LuxAlgo');
@@ -1352,10 +1357,11 @@ sub _build_sidebar {
     $make_toggle->('vp_va',            'VA  VAH / VAL');
 
     # ── Sección: Anchored VWAP (Fase 2) ──────────────────────
-    $sep->('VWAP Anclado');
-    $make_toggle->('anchored_vwap',    'VW  VWAP ON/OFF');
-    $make_toggle->('vwap_markers',     'MM  Marcadores Ancla');
-    $make_toggle->('vwap_labels',      'LL  Etiquetas VWAP');
+    $sep->('VWAP AUTOMÁTICO');
+    $make_toggle->('vwap_auto_missed_pivot', 'VWAP automático en Missed Pivot');
+    $make_toggle->('vwap_auto_hide_1d',      'Ocultar automático en 1D o superior');
+    $sep->('VWAP MANUAL INDEPENDIENTE');
+    $make_toggle->('vwap_manual_show',       'Agregar / mostrar VWAP manual');
 
     # ── Sección: Replay ──────────────────────────────────────
     $sep->('Replay');

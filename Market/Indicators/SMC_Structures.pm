@@ -100,6 +100,12 @@ sub compute {
     my $fvgs = _build_fvgs(
         $candles, $atr, $max_idx, $tf, $structures, $config, $self ? $self->{_cache_fvgs} : undef
     );
+    if ($self) {
+        $self->{_cache_obs} //= {};
+    }
+    my $order_blocks = _build_order_blocks(
+        $candles, $atr, $structures, $max_idx, $tf, $self ? $self->{_cache_obs} : undef
+    );
     my $fib_sets   = _build_fib_sets($candles, $pivots, $structures, $max_idx, $tf);
     my $pd_zones   = _build_premium_discount($pivots, $structures, $fib_sets, $max_idx, $tf);
 
@@ -108,6 +114,7 @@ sub compute {
         structures             => $structures,
         trailing_extremes      => $trailing_extremes,
         fvgs                   => $fvgs,
+        order_blocks           => $order_blocks,
         fib_sets               => $fib_sets,
         premium_discount_zones => $pd_zones,
         events                 => [ @$structures, @$fvgs, @$pd_zones ],
@@ -1207,6 +1214,148 @@ sub _last_before {
         $last = $p;
     }
     return $last;
+}
+sub _build_order_blocks {
+    my ($candles, $atr_series, $structures, $max_idx, $tf, $cache_obj) = @_;
+    
+    $cache_obj //= {};
+    $cache_obj->{max_idx} //= -1;
+    $cache_obj->{active} //= [];
+    $cache_obj->{all_obs} //= [];
+    $cache_obj->{seen} //= {};
+    
+    if ($max_idx < $cache_obj->{max_idx}) {
+        $cache_obj->{max_idx} = -1;
+        $cache_obj->{active} = [];
+        $cache_obj->{all_obs} = [];
+        $cache_obj->{seen} = {};
+    }
+    
+    my @active = @{ $cache_obj->{active} };
+    my @all_obs = @{ $cache_obj->{all_obs} };
+    my %seen = %{ $cache_obj->{seen} };
+    my $start_idx = $cache_obj->{max_idx} + 1;
+    
+    my %new_obs_by_conf;
+    
+    for my $struct (@$structures) {
+        my $conf_idx = $struct->{confirmation_index};
+        next if $conf_idx < $start_idx || $conf_idx > $max_idx;
+        
+        my $id = $struct->{id} . "_ob";
+        next if $seen{$id}++;
+        
+        my $bias = $struct->{direction};
+        my $pivot_idx = $struct->{pivot_index} // $struct->{source_index};
+        next unless defined $pivot_idx;
+        
+        my $ob_idx = $pivot_idx;
+        if ($bias eq 'bullish') {
+            my $min_val = undef;
+            for my $k ($pivot_idx .. $conf_idx) {
+                my $c_k = $candles->[$k];
+                my $atr = $atr_series->[$k] // ($c_k->{high} - $c_k->{low});
+                my $high_vol = ($c_k->{high} - $c_k->{low}) >= (2 * $atr) ? 1 : 0;
+                my $parsed_low = $high_vol ? $c_k->{high} : $c_k->{low};
+                
+                if (!defined($min_val) || $parsed_low < $min_val) {
+                    $min_val = $parsed_low;
+                    $ob_idx = $k;
+                }
+            }
+        } else {
+            my $max_val = undef;
+            for my $k ($pivot_idx .. $conf_idx) {
+                my $c_k = $candles->[$k];
+                my $atr = $atr_series->[$k] // ($c_k->{high} - $c_k->{low});
+                my $high_vol = ($c_k->{high} - $c_k->{low}) >= (2 * $atr) ? 1 : 0;
+                my $parsed_high = $high_vol ? $c_k->{low} : $c_k->{high};
+                
+                if (!defined($max_val) || $parsed_high > $max_val) {
+                    $max_val = $parsed_high;
+                    $ob_idx = $k;
+                }
+            }
+        }
+        
+        my $c = $candles->[$ob_idx];
+        my $new_ob = {
+            id => $id,
+            timeframe => $tf,
+            direction => $bias,
+            scope => $struct->{scope},
+            source_index => $ob_idx,
+            source_time => $c->{time},
+            high => $c->{high},
+            low => $c->{low},
+            status => 'active',
+            active => 1,
+            confirmation_index => $conf_idx,
+            project_until_index => $max_idx,
+            project_until_time => $candles->[$max_idx]{time},
+            opacity => 0.22,
+        };
+        push @{ $new_obs_by_conf{$conf_idx} }, $new_ob;
+        push @all_obs, $new_ob;
+    }
+    
+    for my $i ($start_idx .. $max_idx) {
+        last if $i > $#$candles;
+        my $c = $candles->[$i];
+        
+        @active = grep {
+            my $ob = $_;
+            my $removed = 0;
+            if ($ob->{status} eq 'active' && $i > $ob->{source_index}) {
+                if ($ob->{direction} eq 'bullish') {
+                    if ($c->{close} <= $ob->{low}) {
+                        $ob->{status} = 'invalidated';
+                        $ob->{active} = 0;
+                        $ob->{end_index} = $i;
+                        $ob->{end_time} = $c->{time};
+                        $removed = 1;
+                    } elsif ($c->{low} <= $ob->{high}) {
+                        $ob->{status} = 'mitigated';
+                        $ob->{active} = 0;
+                        $ob->{end_index} = $i;
+                        $ob->{end_time} = $c->{time};
+                        $removed = 1;
+                    }
+                } else {
+                    if ($c->{close} >= $ob->{high}) {
+                        $ob->{status} = 'invalidated';
+                        $ob->{active} = 0;
+                        $ob->{end_index} = $i;
+                        $ob->{end_time} = $c->{time};
+                        $removed = 1;
+                    } elsif ($c->{high} >= $ob->{low}) {
+                        $ob->{status} = 'mitigated';
+                        $ob->{active} = 0;
+                        $ob->{end_index} = $i;
+                        $ob->{end_time} = $c->{time};
+                        $removed = 1;
+                    }
+                }
+            }
+            !$removed;
+        } @active;
+        
+        if (exists $new_obs_by_conf{$i}) {
+            push @active, @{ $new_obs_by_conf{$i} };
+        }
+    }
+    
+    $cache_obj->{max_idx} = $max_idx;
+    $cache_obj->{active} = [ @active ];
+    $cache_obj->{all_obs} = [ @all_obs ];
+    $cache_obj->{seen} = { %seen };
+    
+    for my $ob (@active) {
+        $ob->{project_until_index} = $max_idx;
+        $ob->{project_until_time}  = $candles->[$max_idx]{time};
+    }
+    
+    return \@all_obs;
 }
 
 1;

@@ -66,6 +66,91 @@ sub calculate_for_window {
     return $res;
 }
 
+sub calculate_for_window_new {
+    my ($self, $market_data, $start, $end, $full_smc, $vp_profs, $pmr_raw, $vis) = @_;
+    
+    my $max_idx = $market_data->size() - 1;
+    my $candles = $market_data->get_slice(0, $max_idx);
+    my $tf = $market_data->{current_tf} // '1m';
+    
+    my @all_segments;
+    my @all_anchors;
+    my @all_instances;
+
+    # 1. Automatic VWAP
+    if ($vis->{vwap_auto_missed_pivot}) {
+        my $settings = {
+            show => 1,
+            hide_on_1d_or_above => $vis->{vwap_auto_hide_1d} // 0,
+            context_bars => $self->{context_bars},
+        };
+        
+        # The user requested to anchor on the regular pivots (triangles) instead of ghosts
+        my $pmr_events = $pmr_raw ? ($pmr_raw->{regularPivots} // []) : [];
+        my @mapped_events = map {
+            my %c = %$_;
+            $c{kind} = 'missedPivot';
+            $c{confirmed} = 1;
+            \%c
+        } @$pmr_events;
+        
+        my $pmr_provisional = $pmr_raw ? $pmr_raw->{provisionalPivot} : undef;
+        
+        my $auto_res = $self->compute_missed_pivot_auto(
+            candles => $candles,
+            max_visible_index => $end,
+            timeframe => $tf,
+            settings => $settings,
+            missed_pivot_events => \@mapped_events,
+            provisional_pivot => $pmr_provisional,
+            symbol => 'DEFAULT',
+        );
+        
+        if ($auto_res && $auto_res->{visible}) {
+            push @all_segments, @{ $auto_res->{segments} // [] };
+            push @all_anchors, @{ $auto_res->{anchors} // [] };
+            push @all_instances, @{ $auto_res->{instances} // [] };
+        }
+    }
+    
+    # 2. Manual VWAP
+    if ($vis->{vwap_manual_show}) {
+        my $settings = {
+            anchor_session     => $self->{anchor_session},
+            anchor_market_open => $self->{anchor_market_open},
+            anchor_bos         => $self->{anchor_bos},
+            anchor_choch       => $self->{anchor_choch},
+            anchor_poc         => $self->{anchor_poc},
+            context_bars       => $self->{context_bars},
+            show               => 1,
+        };
+        my $manual_res = $self->compute(
+            candles          => $candles,
+            max_visible_index => $end,
+            timeframe        => $tf,
+            settings         => $settings,
+            structure_events => $full_smc // [],
+            poc_events       => $vp_profs // [],
+        );
+        
+        if ($manual_res && $manual_res->{visible}) {
+            push @all_segments, @{ $manual_res->{segments} // [] };
+            push @all_anchors, @{ $manual_res->{anchors} // [] };
+            push @all_instances, @{ $manual_res->{instances} // [] };
+        }
+    }
+
+    my $res = {
+        visible => 1,
+        segments => \@all_segments,
+        anchors => \@all_anchors,
+        instances => \@all_instances,
+    };
+    
+    $self->{last_result} = $res;
+    return $res;
+}
+
 sub get_anchors {
     my ($self) = @_;
     return [] unless $self->{last_result} && $self->{last_result}{segments};

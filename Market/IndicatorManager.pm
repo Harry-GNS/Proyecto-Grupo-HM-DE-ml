@@ -378,6 +378,30 @@ sub _build_smc_candles_array {
             }
         }
     }
+    # 4. Mapear Order Blocks (OB)
+    if (exists $smc_res->{order_blocks} && ref($smc_res->{order_blocks}) eq 'ARRAY') {
+        for my $ob (@{ $smc_res->{order_blocks} }) {
+            my $start_ob = $ob->{source_index};
+            if (defined $start_ob && $start_ob >= 0 && $start_ob <= $max_idx) {
+                my $mapped_ob = {
+                    %$ob,
+                    start_idx     => $ob->{source_index},
+                    top           => $ob->{high},
+                    bottom        => $ob->{low},
+                    type          => $ob->{direction} eq 'bullish' ? 'bullish_ob' : 'bearish_ob',
+                };
+                
+                $smc_candles[$start_ob]->{order_blocks} //= [];
+                push @{ $smc_candles[$start_ob]->{order_blocks} }, $mapped_ob;
+                
+                my $end_ob = $max_idx;
+                for my $k ($start_ob .. $end_ob) {
+                    $smc_candles[$k]->{active_order_blocks} //= [];
+                    push @{ $smc_candles[$k]->{active_order_blocks} }, $mapped_ob;
+                }
+            }
+        }
+    }
 
     return \@smc_candles;
 }

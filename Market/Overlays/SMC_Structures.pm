@@ -93,46 +93,127 @@ sub render {
                 -text => $punto->{state}, -fill => '#d1d4dc',
                 -font => 'Helvetica 8 bold', -tags => ['smc_overlay']);
         }
+        # ==================================================================
+        # 3. FAIR VALUE GAPS (FVG)
+        # ==================================================================
+        # (Renderizado al final para que no tape las velas u otros elementos)
+
+        # ==================================================================
+        # 4. ORDER BLOCKS (OB)
+        # ==================================================================
+        # (Se recogen para renderizarse junto con los FVGs al final)
     }
 
     # ==================================================================
-    # 4. FAIR VALUE GAPS
+    # RENDERIZADO DE ÁREAS (FVG Y OB)
     # ==================================================================
-    if ($show->('fvg')) {
-        for my $fvg (@fvgs_to_draw) {
-            my $rel_start = $fvg->{start_idx} - $start_idx_viewport;
-            my $x1 = $scale->index_to_center_x($rel_start);
-            my $x2;
+    
+    my @obs_to_draw;
+    if ($show->('ob') && exists $smc_slice->[-1]->{active_order_blocks}) {
+        # Only use the order blocks active at the END of the viewport
+        push @obs_to_draw, @{ $smc_slice->[-1]->{active_order_blocks} };
+    }
 
-            my $is_mitigated = defined $fvg->{mitigated_idx};
+    if ($show->('ob') && @obs_to_draw) {
+        my %drawn_obs;
+        my @unique_obs;
+        # Get only the ones that are STILL active at the very end of the viewport
+        my $viewport_end_idx = $start_idx_viewport + $visible_bars - 1;
+        for my $ob (@obs_to_draw) {
+            next if $drawn_obs{$ob->{id}}++;
+            next if defined($ob->{end_index}) && $ob->{end_index} <= $viewport_end_idx;
+            push @unique_obs, $ob;
+        }
 
-            if ($is_mitigated) {
-                my $rel_end = $fvg->{mitigated_idx} - $start_idx_viewport;
-                next if $rel_end < $offset_frac;
-                $x2 = $scale->index_to_center_x($rel_end);
-            } else {
-                $x2 = $width + 2000;
-            }
+        # Filter to max 5 internal and 5 external (the most recently confirmed ones)
+        my @internal_obs = sort { $b->{confirmation_index} <=> $a->{confirmation_index} } grep { $_->{scope} eq 'internal' } @unique_obs;
+        my @external_obs = sort { $b->{confirmation_index} <=> $a->{confirmation_index} } grep { $_->{scope} eq 'external' } @unique_obs;
+        
+        @internal_obs = splice(@internal_obs, 0, 5) if @internal_obs > 5;
+        @external_obs = splice(@external_obs, 0, 5) if @external_obs > 5;
+        
+        my @final_obs = (@internal_obs, @external_obs);
 
-            my $y1 = $scale->value_to_y($fvg->{top});
-            my $y2 = $scale->value_to_y($fvg->{bottom});
-
-            my $color = $fvg->{type} eq 'bullish_fvg' ? '#2979FF' : '#FF5252';
-            my $outline_dash = '-';
+        for my $ob (@final_obs) {
+            my $rel_start = $ob->{start_idx} - $start_idx_viewport;
+            my $rel_end   = $visible_bars; # Extend to edge
             
-            # Regla de mitigación: atenuar canales obsoletos
-            if ($is_mitigated) {
-                $color = '#4B5563'; # Gris tenue
-                $outline_dash = '.'; # Guiones muy finos
-            }
+            my $x1 = $scale->index_to_x($rel_start);
+            my $x2 = $scale->index_to_x($rel_end);
 
+            # Clamp coordinates to avoid Tk 16-bit coordinate limit dropping shapes
+            $x1 = -100 if $x1 < -100;
+            $x1 = $width + 100 if $x1 > $width + 100;
+            $x2 = -100 if $x2 < -100;
+            $x2 = $width + 100 if $x2 > $width + 100;
+
+            my $y1 = $scale->value_to_y($ob->{top});
+            my $y2 = $scale->value_to_y($ob->{bottom});
+            
+            # value_to_y is inverted, so smaller y is higher price
+            my $y_top = $y1 < $y2 ? $y1 : $y2;
+
+            # LuxAlgo matching colors
+            my $color = '#E53935';
+            my $label = '';
+            if ($ob->{scope} eq 'internal') {
+                $color = $ob->{direction} eq 'bullish' ? '#3179f5' : '#f77c80';
+                $label = 'Internal OB';
+            } else {
+                $color = $ob->{direction} eq 'bullish' ? '#1848cc' : '#b22833';
+                $label = 'External OB';
+            }
+            
             $c->createRectangle($x1, $y1, $x2, $y2,
-                -fill => $color, -outline => $color, -stipple => 'gray25',
+                -outline => $color, -fill => $color, -stipple => 'gray25',
                 -tags => ['smc_overlay']);
-            $c->createLine($x1, ($y1+$y2)/2, $x2, ($y1+$y2)/2,
-                -dash => $outline_dash, -fill => $color, -width => 1,
+                
+            $c->createText($x2, $y_top - 2,
+                -text => $label,
+                -anchor => 'se',
+                -fill => $color,
+                -font => ['Arial', 8],
                 -tags => ['smc_overlay']);
         }
+    }
+
+    # 2. FVGs
+    my %drawn_fvgs;
+    for my $fvg (@fvgs_to_draw) {
+        next if $drawn_fvgs{$fvg->{id}}++;
+
+        my $rel_start = $fvg->{start_idx} - $start_idx_viewport;
+        my $x1 = $scale->index_to_center_x($rel_start);
+        my $x2;
+
+        my $is_mitigated = defined $fvg->{mitigated_idx};
+
+        if ($is_mitigated) {
+            my $rel_end = $fvg->{mitigated_idx} - $start_idx_viewport;
+            next if $rel_end < $offset_frac;
+            $x2 = $scale->index_to_center_x($rel_end);
+        } else {
+            $x2 = $width + 2000;
+        }
+
+        my $y1 = $scale->value_to_y($fvg->{top});
+        my $y2 = $scale->value_to_y($fvg->{bottom});
+
+        my $color = $fvg->{type} eq 'bullish_fvg' ? '#2979FF' : '#FF5252';
+        my $outline_dash = '-';
+        
+        # Regla de mitigación: atenuar canales obsoletos
+        if ($is_mitigated) {
+            $color = '#4B5563'; # Gris tenue
+            $outline_dash = '.'; # Guiones muy finos
+        }
+
+        $c->createRectangle($x1, $y1, $x2, $y2,
+            -fill => $color, -outline => $color, -stipple => 'gray25',
+            -tags => ['smc_overlay']);
+        $c->createLine($x1, ($y1+$y2)/2, $x2, ($y1+$y2)/2,
+            -dash => $outline_dash, -fill => $color, -width => 1,
+            -tags => ['smc_overlay']);
     }
 
     $c->lower('smc_overlay');
