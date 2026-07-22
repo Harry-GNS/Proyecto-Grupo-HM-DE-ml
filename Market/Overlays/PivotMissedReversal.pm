@@ -61,9 +61,9 @@ sub render {
 
             next if ($x1 < 0 && $x2 < 0) || ($x1 > $width && $x2 > $width);
 
-            my $color = $seg->{color_role} =~ /high/i ? $self->{color_regular_high} : $self->{color_regular_low};
-            if ($seg->{source} eq 'missed_low' || $seg->{source} eq 'missed_high' || $seg->{source} =~ /missed/i) {
-                $color = $seg->{color_role} =~ /high/i ? $self->{color_missed_high} : $self->{color_missed_low};
+            my $color = ($seg->{color_role} // '') =~ /high/i ? $self->{color_regular_high} : $self->{color_regular_low};
+            if (($seg->{source} // '') eq 'missed_low' || ($seg->{source} // '') eq 'missed_high' || ($seg->{source} // '') =~ /missed/i) {
+                $color = ($seg->{color_role} // '') =~ /high/i ? $self->{color_missed_high} : $self->{color_missed_low};
             }
 
             my $style = $seg->{line_style} // $seg->{style} // 'solid';
@@ -101,11 +101,11 @@ sub render {
             my $y  = $scale->value_to_y($g->{y1_price});
 
             # Dibujar extendiendo hacia la derecha si está activo
-            $x2 = $width + 100 if $g->{active} || $g->{status} eq 'temporary';
+            $x2 = $width + 100 if ($g->{active} // 0) || ($g->{status} // '') eq 'temporary';
 
             next if $x1 > $width && $x2 > $width;
 
-            my $color = $g->{type} eq 'high' ? $self->{color_ghost_high} : $self->{color_ghost_low};
+            my $color = ($g->{type} // '') eq 'high' ? $self->{color_ghost_high} : $self->{color_ghost_low};
             my $dash = '.'; # Guiones punteados para niveles fantasma
 
             $c->createLine(
@@ -127,15 +127,15 @@ sub render {
             my $rel = $p->{index} - $start_idx_viewport;
             my $px  = ($rel - $offset_frac) * $candle_width + ($candle_width / 2);
             my $py  = $scale->value_to_y($p->{price});
-            my $oy  = $p->{type} eq 'high' ? -12 : 12;
+            my $oy  = ($p->{type} // '') eq 'high' ? -12 : 12;
 
             next if $px < -20 || $px > $width + 20;
 
-            my $color = $p->{type} eq 'high' ? $self->{color_regular_high} : $self->{color_regular_low};
+            my $color = ($p->{type} // '') eq 'high' ? $self->{color_regular_high} : $self->{color_regular_low};
 
             $c->createText(
                 $px, $py + $oy,
-                -text => $p->{label} // ($p->{type} eq 'high' ? '▼' : '▲'),
+                -text => $p->{label} // (($p->{type} // '') eq 'high' ? '▼' : '▲'),
                 -fill => $color,
                 -font => 'Helvetica 9 bold',
                 -tags => ['pmr_overlay'],
@@ -159,17 +159,31 @@ sub render {
             my $rel = $p->{index} - $start_idx_viewport;
             my $px  = ($rel - $offset_frac) * $candle_width + ($candle_width / 2);
             my $py  = $scale->value_to_y($p->{price});
-            my $oy  = $p->{type} eq 'high' ? -12 : 12;
+            my $oy  = ($p->{type} // '') eq 'high' ? -12 : 12;
 
             next if $px < -20 || $px > $width + 20;
 
-            my $color = $p->{type} eq 'high' ? $self->{color_missed_high} : $self->{color_missed_low};
+            my $color = ($p->{type} // '') eq 'high' ? $self->{color_missed_high} : $self->{color_missed_low};
 
+            my $cy = $py + $oy;
+            my $r = 7;
+
+            # Círculo medalla de fondo en color contrastante con borde blanco
+            $c->createOval(
+                $px - $r, $cy - $r,
+                $px + $r, $cy + $r,
+                -fill    => $color,
+                -outline => '#ffffff',
+                -width   => 1,
+                -tags    => ['pmr_overlay'],
+            );
+
+            # Texto "G" (Ghost) en negrita centrado dentro de la medalla
             $c->createText(
-                $px, $py + $oy,
-                -text => $p->{label} // '👻',
-                -fill => $color,
-                -font => 'Helvetica 10',
+                $px, $cy,
+                -text => 'G',
+                -fill => '#ffffff',
+                -font => 'Helvetica 7 bold',
                 -tags => ['pmr_overlay'],
             );
         }

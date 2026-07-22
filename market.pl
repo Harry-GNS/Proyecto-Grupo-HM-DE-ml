@@ -162,7 +162,7 @@ $indicators->register('InternalZigZag', Market::Indicators::InternalZigZag->new(
 # Registrar PMR (Pivot Points High Low & Missed Reversal Levels LuxAlgo)
 use Market::Indicators::PivotMissedReversal;
 $indicators->register('PivotMissedReversal', Market::Indicators::PivotMissedReversal->new(
-    length       => 50,
+    length       => 10,
     show_regular => 1,
     show_missed  => 1,
 ));

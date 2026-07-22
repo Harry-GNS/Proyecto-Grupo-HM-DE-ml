@@ -8,14 +8,15 @@ sub new {
     my ($class, %args) = @_;
     my $self = {
         canvas => $args{canvas},
-        # Colores para ratios específicos de Fibonacci
+        # Colores para ratios específicos de Fibonacci (Estilo TradingView)
         colors => {
-            '0.618' => '#2962FF',  # Azul fuerte
-            '0.786' => '#d32f2f',  # Rojo fuerte
-            '1'     => '#388e3c',  # Verde
-            '1.272' => '#7b1fa2',  # Morado
-            '1.414' => '#fbc02d',  # Amarillo oscuro
-            '1.618' => '#e64a19',  # Naranja
+            '0'     => '#78909c',  # Gris (Nivel 0.000)
+            '0.236' => '#e040fb',  # Fucsia / Rosa (23.6%)
+            '0.382' => '#00e676',  # Verde brillante (38.2%)
+            '0.5'   => '#ffeb3b',  # Amarillo brillante (50.0%)
+            '0.618' => '#2962ff',  # Azul rey (61.8% Golden Ratio)
+            '0.786' => '#ff6d00',  # Naranja brillante (78.6%)
+            '1'     => '#f44336',  # Rojo brillante (100.0%)
         },
         default_color => '#78909c', # Gris
     };
