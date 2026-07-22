@@ -17,12 +17,17 @@ sub new {
 }
 
 sub render {
-    my ($self, $scale, $liquidity_slice, $visibility) = @_;
+    my ($self, $scale, $liquidity_slice, $start_idx_viewport, $visibility) = @_;
     my $c = $self->{canvas};
 
     $c->delete('liquidity_overlay');
 
     return unless $liquidity_slice && @$liquidity_slice;
+
+    # Índice absoluto de la primera vela de la ventana visible. Se usa para
+    # convertir el end_index (absoluto) de cada nivel al espacio relativo del
+    # viewport que entiende index_to_center_x (igual que Overlays::SMC_Structures).
+    $start_idx_viewport //= 0;
 
     $visibility //= {};
     my $show = sub { $visibility->{$_[0]} // 1 };
@@ -57,11 +62,12 @@ sub render {
 
             if ($should_show) {
                 my $level_price = $punto->{price};
-                my $end_idx     = $punto->{end_index} // $i;
+                # $i es relativo al viewport; end_index viene en índice absoluto.
+                my $end_idx     = $punto->{end_index} // ($i + $start_idx_viewport);
                 my $res         = $punto->{resolution} // '';
 
                 my $x_start = $scale->index_to_center_x($i);
-                my $x_end   = $scale->index_to_center_x($end_idx);
+                my $x_end   = $scale->index_to_center_x($end_idx - $start_idx_viewport);
                 my $y       = $scale->value_to_y($level_price);
 
                 next if $y < -100 || $y > $height + 100;

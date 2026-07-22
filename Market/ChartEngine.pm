@@ -3,7 +3,6 @@ package Market::ChartEngine;
 use strict;
 use warnings;
 use utf8;
-use lib '/home/davidandresvm/Documentos/ProyectoMLv2';
 
 use Market::Panels::Scales;
 use Market::Panels::PricePanel;
@@ -176,7 +175,7 @@ sub render {
     # Overlay de Liquidez (BSL / SSL / EQH / EQL / Sweeps)
     # =========================================================
     my $liq_slice = $self->{indicators}->slice_array('Liquidity', $start, $end);
-    $self->{liquidity_overlay}->render($scale, $liq_slice, $vis);
+    $self->{liquidity_overlay}->render($scale, $liq_slice, $start, $vis);
 
     # ========================================================
     # Overlay de Estructuras SMC (BOS / CHOCH / FVG / labels)

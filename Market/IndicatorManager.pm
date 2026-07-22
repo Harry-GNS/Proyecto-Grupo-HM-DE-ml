@@ -253,7 +253,7 @@ sub recalculate_all {
             pivots => $smc_res ? ($smc_res->{pivots} // []) : [],
         );
         $self->{computed_cache}->{Liquidity_raw} = $liq_res;
-        $self->{computed_cache}->{Liquidity} = $liq_res->{levels} // [];
+        $self->{computed_cache}->{Liquidity} = $self->_build_liquidity_candles_array($liq_res, $max_idx);
     }
     
     # -- Recompute SMC_Structures passing Liquidity events --
@@ -380,6 +380,93 @@ sub _build_smc_candles_array {
     }
 
     return \@smc_candles;
+}
+
+# ---------------------------------------------------------------------------
+# Transforma el resultado crudo de Liquidity (una lista de niveles + una lista
+# de eventos) en un array paralelo a las velas (indexado por índice absoluto de
+# vela, 0..$max_idx), que es la forma que espera Overlays::Liquidity —
+# exactamente igual que _build_smc_candles_array hace para SMC_Structures.
+#
+# Cada slot tiene la estructura:
+#   { state, price, end_index, resolution, events }
+# donde:
+#   state      -> 'swing_high'|'swing_low'|'eqh'|'eql'|'none'  (tipo de nivel)
+#   price      -> precio del nivel de liquidez
+#   end_index  -> índice ABSOLUTO de vela donde la línea termina (resolución, o
+#                 el borde derecho $max_idx si el nivel sigue activo)
+#   resolution -> 'active'|'sweep'|'grab'|'run'                (status del nivel)
+#   events     -> [ { type => 'sweep_up'|'sweep_down'|'grab_up'|..., price } ]
+# ---------------------------------------------------------------------------
+sub _build_liquidity_candles_array {
+    my ($self, $liq_res, $max_idx) = @_;
+    return [] unless $liq_res;
+
+    my @liq_candles;
+    for my $i (0 .. $max_idx) {
+        $liq_candles[$i] = {
+            state      => 'none',
+            price      => 0,
+            end_index  => undef,
+            resolution => '',
+            events     => [],
+        };
+    }
+
+    # Tipo de nivel (BSL/SSL/EQH/EQL) -> estado que dibuja el overlay
+    my %state_of = (BSL => 'swing_high', SSL => 'swing_low', EQH => 'eqh', EQL => 'eql');
+    # Status del nivel -> texto/estilo de resolución del overlay
+    my %res_of = (
+        ACTIVE     => 'active',
+        SWEPT      => 'sweep',
+        GRABBED    => 'grab',
+        RUN        => 'run',
+        BROKEN     => 'run',
+        ACCEPTANCE => 'active',
+    );
+
+    # 1. Cada nivel se ancla en la vela de su pivote de origen (donde nace el
+    #    nivel) y se extiende como línea horizontal hasta su vela de resolución.
+    if (ref($liq_res->{levels}) eq 'ARRAY') {
+        for my $lv (@{ $liq_res->{levels} }) {
+            my $type  = $lv->{type} // next;
+            my $state = $state_of{$type} // next;
+
+            my $slot = $lv->{first_pivot_index} // $lv->{pivot_index} // $lv->{start_index};
+            next unless defined $slot && $slot >= 0 && $slot <= $max_idx;
+
+            # Fin de la línea: vela de resolución, o el borde derecho si sigue activo.
+            my $end = $lv->{end_index} // $max_idx;
+            $end = $max_idx if $end > $max_idx;
+            $end = $slot    if $end < $slot;
+
+            $liq_candles[$slot]->{state}      = $state;
+            $liq_candles[$slot]->{price}      = $lv->{price} // $lv->{basePrice} // $lv->{base_price} // 0;
+            $liq_candles[$slot]->{end_index}  = $end;
+            $liq_candles[$slot]->{resolution} = $res_of{ $lv->{status} // 'ACTIVE' } // 'active';
+        }
+    }
+
+    # 2. Eventos (sweep/grab/run) flotan sobre la vela donde se dispararon.
+    #    classification -> base del tipo de evento que el overlay reconoce.
+    if (ref($liq_res->{events}) eq 'ARRAY') {
+        my %base_of = (SWEEP => 'sweep', GRAB => 'grab', BIG_GRAB => 'grab', RUN => 'run');
+        for my $ev (@{ $liq_res->{events} }) {
+            my $base = $base_of{ $ev->{classification} // '' } // next;
+            my $dir  = $ev->{direction} // '';
+            next unless $dir eq 'up' || $dir eq 'down';
+
+            my $trig = $ev->{swept_index} // $ev->{resolved_index};
+            next unless defined $trig && $trig >= 0 && $trig <= $max_idx;
+
+            push @{ $liq_candles[$trig]->{events} }, {
+                type  => "${base}_${dir}",
+                price => $ev->{swept_price} // $ev->{level_price} // 0,
+            };
+        }
+    }
+
+    return \@liq_candles;
 }
 
 sub _compute_atr_for_candles {
