@@ -223,16 +223,21 @@ sub render {
     # Cálculo lazy restringido a la ventana visible + contexto
     # ========================================================
     if ($vis->{volume_profile} // 1) {
-        my $vp_ind = $self->{indicators}->get('Volume_Profile') if $self->{indicators}->can('get');
         # Recuperar el indicador directamente desde el manager
         my $vp_indicator = $self->{indicators}{indicators}{'Volume_Profile'};
-        if (defined $vp_indicator) {
-            # Obtener los datos SMC para el modo bos_choch
-            my $full_smc = $self->{indicators}->get('SMC_Structures');
-            $vp_indicator->calculate_for_window(
-                $self->{market_data}, $start, $end, $full_smc
-            );
-            $self->{vp_overlay}->render($scale, $vp_indicator, $start, $vis);
+        if (defined $vp_indicator && $vp_indicator->can('compute')) {
+            my $candles_ref = $self->{market_data}->get_slice(0, $end);
+            if ($candles_ref && @$candles_ref) {
+                $vp_indicator->compute(
+                    candles           => $candles_ref,
+                    max_visible_index => $end,
+                    visible_start     => $start,
+                    settings          => { mode => 'visible_range' },
+                );
+                $self->{vp_overlay}->render($scale, $vp_indicator, $start, $vis);
+            }
+        } else {
+            $self->{price_canvas}->delete('vp_overlay');
         }
     } else {
         $self->{price_canvas}->delete('vp_overlay');

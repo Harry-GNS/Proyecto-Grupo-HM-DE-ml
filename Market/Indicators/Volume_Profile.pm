@@ -21,8 +21,37 @@ my %EVENT_KEYS = map { $_ => 1 } qw(bos choch both);
 my %SCOPE_KEYS = map { $_ => 1 } qw(internal external both);
 
 sub new { bless {}, shift }
-sub reset {}
+sub reset { my $self = shift; $self->{_last_result} = undef; }
 sub get_values { [] }
+
+# Accesor de compatibilidad: devuelve los perfiles del último compute()
+# con los campos mapeados al formato que espera el overlay.
+sub get_profiles {
+    my $self = shift;
+    my $r = $self->{_last_result};
+    return [] unless $r && $r->{profiles} && @{ $r->{profiles} };
+    my @mapped;
+    for my $p (@{ $r->{profiles} }) {
+        my $bins_count = $p->{bins} ? scalar @{ $p->{bins} } : 0;
+        my $range_size = ($p->{max_price} // 0) - ($p->{min_price} // 0);
+        $range_size = 1e-9 if $range_size <= 0;
+        my $tick_size = $bins_count > 0 ? $range_size / $bins_count : 1;
+        push @mapped, {
+            %$p,
+            # Campos renombrados para el overlay
+            start_idx => $p->{start_index},
+            end_idx   => $p->{end_index},
+            range_min => $p->{min_price},
+            tick_size => $tick_size,
+            histogram => [ map { $_->{volume} // 0 } @{ $p->{bins} // [] } ],
+            va_low    => $p->{val_bin_index} // 0,
+            va_high   => $p->{vah_bin_index} // 0,
+            poc_lvl   => $p->{poc_bin_index} // 0,
+            poc       => $p->{poc_price},
+        };
+    }
+    return \@mapped;
+}
 
 sub compute {
     my ($class_or_self, %args) = @_;
@@ -59,7 +88,7 @@ sub compute {
     }
 
     my @pocs = map { _poc_contract($_) } @profiles;
-    return {
+    my $result = {
         visible     => @profiles ? 1 : 0,
         warning     => @profiles ? undef : 'sin perfiles calculables',
         settings    => $settings,
@@ -70,6 +99,11 @@ sub compute {
         timeframe   => $args{timeframe} // '1m',
         method      => 'overlap_high_low_volume_distribution',
     };
+    # Guardar para get_profiles() (solo cuando se llama sobre instancia)
+    if (ref $class_or_self) {
+        $class_or_self->{_last_result} = $result;
+    }
+    return $result;
 }
 
 sub _normalize_settings {

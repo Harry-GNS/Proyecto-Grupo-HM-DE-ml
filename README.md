@@ -17,6 +17,6 @@ sudo cpanm Tk::Chart
 sudo cpanm Chart::Clicker
 ```
 ---
-Hecho por Harry Guajan, Michael Yanez, Joseph Jimenez, David Guachamín
+Hecho por Harry Guajan, Michael Yánez 
 
 ![Portada](Portadaproyecto.png)
