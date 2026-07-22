@@ -19,6 +19,10 @@ sub new {
 
 sub add_candle {
     my ($self, $candle) = @_;
+    # Los indicadores (VWAP anclado, Volume Profile por sesión, Liquidez, etc.)
+    # leen $candle->{time}; el loader entrega la marca temporal como 'timestamp'.
+    # Reflejamos el valor para que la detección de sesiones/anclas funcione.
+    $candle->{time} //= $candle->{timestamp};
     push @{ $self->{data}->{'1m'} }, $candle;
 }
 
@@ -68,6 +72,7 @@ sub build_tf_candles {
 
             push @aggregated, {
                 timestamp => $bucket_ts,
+                time      => $bucket_ts,
                 open      => $candle->{open},
                 high      => $candle->{high},
                 low       => $candle->{low},
