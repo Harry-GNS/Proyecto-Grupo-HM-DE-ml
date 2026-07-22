@@ -60,19 +60,28 @@ sub calculate_for_window {
     $self->{last_result} = $res;
     return $res;
 }
-
 sub get_profiles {
     my ($self) = @_;
     return [] unless $self->{last_result} && $self->{last_result}{profiles};
     
     my @mapped;
     for my $prof (@{ $self->{last_result}{profiles} }) {
+        my $bins = $prof->{bins} // [];
+        my $bin_count = scalar @$bins;
+        my $tick_size = $bin_count > 0 ? ($prof->{max_price} - $prof->{min_price}) / $bin_count : 0.0;
+        
         push @mapped, {
             %$prof,
             start_idx => $prof->{start_index},
             end_idx   => $prof->{end_index},
             vah_price => $prof->{vah},
             val_price => $prof->{val},
+            range_min => $prof->{min_price},
+            tick_size => $tick_size,
+            histogram => [ map { $_->{volume} } @$bins ],
+            va_low    => $prof->{val_bin_index},
+            va_high   => $prof->{vah_bin_index},
+            poc_lvl   => $prof->{poc_bin_index},
         };
     }
     return \@mapped;

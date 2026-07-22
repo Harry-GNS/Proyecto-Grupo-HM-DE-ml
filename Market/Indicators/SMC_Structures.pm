@@ -845,7 +845,9 @@ sub _fvg_mitigated_by_candle {
     if (($fvg->{direction} // '') eq 'bullish') {
         return defined $c->{low} && $c->{low} < $fvg->{gap_low} ? 1 : 0;
     }
-    return defined $c->{high} && $c->{high} > $fvg->{gap_high} ? 1 : 0;
+    # Basado en el script de Pine de LuxAlgo: un FVG bajista se mitiga cuando high > fvg.top
+    # donde fvg.top es el extremo inferior (gap_low, es decir, el high de la vela 3)
+    return defined $c->{high} && $c->{high} > $fvg->{gap_low} ? 1 : 0;
 }
 
 sub _fvg_structure_context {

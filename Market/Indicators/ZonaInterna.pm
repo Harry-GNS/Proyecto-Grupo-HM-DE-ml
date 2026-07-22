@@ -108,21 +108,13 @@ sub _ratios {
     my @ratios;
     my $shownlevels = 0;
 
-    if ($self->{enable618}) {
-        push @ratios, 0.618;
-        $shownlevels++;
-    }
-    if ($self->{enable786}) {
-        push @ratios, 0.786;
-        $shownlevels++;
-    }
-
-    for my $x (1 .. $self->{max_x}) {
-        push @ratios, $x;
-        push @ratios, $x + 0.272;
-        push @ratios, $x + 0.414;
-        push @ratios, $x + 0.618;
-    }
+    push @ratios, 0.000; $shownlevels++;
+    push @ratios, 0.236; $shownlevels++;
+    push @ratios, 0.382; $shownlevels++;
+    push @ratios, 0.500; $shownlevels++;
+    push @ratios, 0.618; $shownlevels++;
+    push @ratios, 0.786; $shownlevels++;
+    push @ratios, 1.000; $shownlevels++;
 
     return (\@ratios, $shownlevels);
 }

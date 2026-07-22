@@ -19,7 +19,7 @@ use utf8;
 #    provisionalPivot.
 # ============================================================
 
-use constant DEFAULT_LENGTH => 50;
+use constant DEFAULT_LENGTH => 10;
 use constant MAX_LENGTH     => 500;
 
 sub new {
@@ -112,17 +112,17 @@ sub reset {
     $self->{ghostLevels}   = [];
     $self->{active_ghost}  = undef;
 
-    $self->{max} = 0.0;
-    $self->{min} = 0.0;
+    $self->{max} = undef;
+    $self->{min} = undef;
     $self->{max_x1} = 0;
     $self->{min_x1} = 0;
-    $self->{follow_max} = 0.0;
-    $self->{follow_min} = 0.0;
+    $self->{follow_max} = undef;
+    $self->{follow_min} = undef;
     $self->{follow_max_x1} = 0;
     $self->{follow_min_x1} = 0;
     $self->{os}  = 0;
-    $self->{px1} = 0;
-    $self->{py1} = 0.0;
+    $self->{px1} = undef;
+    $self->{py1} = undef;
     $self->{has_confirmed_pivot} = 0;
 
     return;
@@ -139,6 +139,23 @@ sub _process_bar {
     if ($center >= 0) {
         my $h = $self->{highs}[$center];
         my $l = $self->{lows}[$center];
+
+        if (!defined $self->{max}) {
+            $self->{max} = $h;
+            $self->{max_x1} = $center;
+        }
+        if (!defined $self->{min}) {
+            $self->{min} = $l;
+            $self->{min_x1} = $center;
+        }
+        if (!defined $self->{follow_max}) {
+            $self->{follow_max} = $h;
+            $self->{follow_max_x1} = $center;
+        }
+        if (!defined $self->{follow_min}) {
+            $self->{follow_min} = $l;
+            $self->{follow_min_x1} = $center;
+        }
 
         my $prev_max = $self->{max};
         my $prev_min = $self->{min};
@@ -191,7 +208,7 @@ sub _process_bar {
 sub _handle_pivot_high {
     my ($self, $n, $idx, $ph, $os_prev) = @_;
 
-    if ($self->{show_missed}) {
+    if ($self->{show_missed} && $self->{has_confirmed_pivot}) {
         if ($os_prev == 1) {
             my $miss = $self->_add_missed_pivot('low', $self->{min_x1}, $self->{min}, $n, 'os_previous_high');
             $self->_add_segment($self->{px1}, $self->{py1}, $self->{min_x1}, $self->{min},
@@ -226,10 +243,12 @@ sub _handle_pivot_high {
 
     if ($self->{show_regular}) {
         my $pivot = $self->_add_regular_pivot('high', $idx, $ph, $n);
-        my $style = ($ph < $self->{max} || $os_prev == 1) ? 'dashed' : 'solid';
-        $self->_add_segment($self->{px1}, $self->{py1}, $idx, $ph,
-            $style, 'pivot_missed_reversal_missed_low', 'regular_high', $n,
-            $pivot ? $pivot->{id} : undef);
+        if ($self->{has_confirmed_pivot}) {
+            my $style = ($ph < $self->{max} || $os_prev == 1) ? 'dashed' : 'solid';
+            $self->_add_segment($self->{px1}, $self->{py1}, $idx, $ph,
+                $style, 'pivot_missed_reversal_missed_low', 'regular_high', $n,
+                $pivot ? $pivot->{id} : undef);
+        }
     }
 
     $self->{py1} = $ph;
@@ -244,7 +263,7 @@ sub _handle_pivot_high {
 sub _handle_pivot_low {
     my ($self, $n, $idx, $pl, $os_prev) = @_;
 
-    if ($self->{show_missed}) {
+    if ($self->{show_missed} && $self->{has_confirmed_pivot}) {
         if ($os_prev == 0) {
             my $miss = $self->_add_missed_pivot('high', $self->{max_x1}, $self->{max}, $n, 'os_previous_low');
             $self->_add_segment($self->{px1}, $self->{py1}, $self->{max_x1}, $self->{max},
@@ -279,10 +298,12 @@ sub _handle_pivot_low {
 
     if ($self->{show_regular}) {
         my $pivot = $self->_add_regular_pivot('low', $idx, $pl, $n);
-        my $style = ($pl > $self->{min} || $os_prev == 0) ? 'dashed' : 'solid';
-        $self->_add_segment($self->{px1}, $self->{py1}, $idx, $pl,
-            $style, 'pivot_missed_reversal_missed_high', 'regular_low', $n,
-            $pivot ? $pivot->{id} : undef);
+        if ($self->{has_confirmed_pivot}) {
+            my $style = ($pl > $self->{min} || $os_prev == 0) ? 'dashed' : 'solid';
+            $self->_add_segment($self->{px1}, $self->{py1}, $idx, $pl,
+                $style, 'pivot_missed_reversal_missed_high', 'regular_low', $n,
+                $pivot ? $pivot->{id} : undef);
+        }
     }
 
     $self->{py1} = $pl;
@@ -372,7 +393,7 @@ sub _add_missed_pivot {
         confirmed_at      => $confirm_idx,
         confirmed_time    => $self->{times}[$confirm_idx],
         price             => $price + 0,
-        label             => '👻',
+        label             => 'G',
         tooltip           => _fmt_price($price),
         pivot_length      => $self->{length},
         reason            => $reason,
@@ -523,7 +544,7 @@ sub _provisional_pivot {
         confirmationIndex => undef,
         confirmationTime  => undef,
         price             => $best_price,
-        label             => '👻',
+        label             => 'G',
         tooltip           => _fmt_price($best_price),
         color_role        => $label_role,
         fromIndex         => $self->{px1},

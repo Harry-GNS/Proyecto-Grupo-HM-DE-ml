@@ -228,7 +228,8 @@ sub render {
         my $vp_indicator = $self->{indicators}{indicators}{'Volume_Profile'};
         if (defined $vp_indicator) {
             # Obtener los datos SMC para el modo bos_choch
-            my $full_smc = $self->{indicators}->get('SMC_Structures');
+            my $smc_raw = $self->{indicators}->get_raw('SMC_Structures');
+            my $full_smc = $smc_raw ? ($smc_raw->{structures} // []) : [];
             $vp_indicator->calculate_for_window(
                 $self->{market_data}, $start, $end, $full_smc
             );
@@ -244,7 +245,8 @@ sub render {
     if ($vis->{anchored_vwap} // 1) {
         my $vwap_indicator = $self->{indicators}{indicators}{'Anchored_VWAP'};
         if (defined $vwap_indicator) {
-            my $full_smc  = $self->{indicators}->get('SMC_Structures');
+            my $smc_raw = $self->{indicators}->get_raw('SMC_Structures');
+            my $full_smc = $smc_raw ? ($smc_raw->{structures} // []) : [];
             my $vp_ind    = $self->{indicators}{indicators}{'Volume_Profile'};
             my $vp_profs  = defined $vp_ind ? $vp_ind->get_profiles() : [];
             $vwap_indicator->calculate_for_window(

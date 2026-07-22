@@ -139,7 +139,7 @@ sub recalculate_all {
             liquidity_events => [],
         );
         $self->{computed_cache}->{SMC_Structures_raw} = $smc_res;
-        $self->{computed_cache}->{SMC_Structures} = $smc_res->{events} // [];
+        $self->{computed_cache}->{SMC_Structures} = $self->_build_smc_candles_array($smc_res, $max_idx);
     }
     
     # -- 6. Liquidity --
@@ -169,7 +169,7 @@ sub recalculate_all {
             liquidity_events => $liq_res->{events} // [],
         );
         $self->{computed_cache}->{SMC_Structures_raw} = $smc_res;
-        $self->{computed_cache}->{SMC_Structures} = $smc_res->{events} // [];
+        $self->{computed_cache}->{SMC_Structures} = $self->_build_smc_candles_array($smc_res, $max_idx);
     }
     
     # -- 7. MarketRegime --
@@ -192,9 +192,10 @@ sub recalculate_all {
     # -- 8. ZonaInterna --
     if (exists $self->{indicators}->{ZonaInterna}) {
         my $zi_ind = $self->{indicators}->{ZonaInterna};
-        my $zz_data = $self->{computed_cache}->{ZigZagTrend}
-            ? $self->{indicators}->{ZigZagTrend}->compute(candles => $candles, max_visible_index => $max_idx, timeframe => $timeframe)
-            : $self->{computed_cache}->{InternalZigZag_raw};
+        my $zz_data = $self->{computed_cache}->{InternalZigZag_raw};
+        if (!$zz_data || !ref($zz_data->{segments}) || scalar(@{$zz_data->{segments}}) < 1) {
+            $zz_data = $self->{computed_cache}->{ZigZagTrend_raw};
+        }
         
         my $res = $zi_ind->compute(
             zigzag => $zz_data,
@@ -213,6 +214,74 @@ sub recalculate_all {
             $ind->calculate_batch($market_data);
         }
     }
+}
+
+sub _build_smc_candles_array {
+    my ($self, $smc_res, $max_idx) = @_;
+    return [] unless $smc_res;
+
+    my @smc_candles;
+    for my $i (0 .. $max_idx) {
+        $smc_candles[$i] = {
+            events      => [],
+            fvgs        => [],
+            active_fvgs => [],
+            state       => 'none',
+            price       => 0,
+        };
+    }
+
+    # 1. Mapear BOS, CHOCH, MSS events
+    if (exists $smc_res->{structures} && ref($smc_res->{structures}) eq 'ARRAY') {
+        for my $st (@{ $smc_res->{structures} }) {
+            my $break_idx = $st->{break_index};
+            if (defined $break_idx && $break_idx >= 0 && $break_idx <= $max_idx) {
+                push @{ $smc_candles[$break_idx]->{events} }, {
+                    %$st,
+                    origin => $st->{pivot_index},
+                    dir    => $st->{direction},
+                };
+            }
+        }
+    }
+
+    # 2. Mapear Pivots (HH, HL, LH, LL)
+    if (exists $smc_res->{pivots} && ref($smc_res->{pivots}) eq 'ARRAY') {
+        for my $p (@{ $smc_res->{pivots} }) {
+            my $idx = $p->{index};
+            if (defined $idx && $idx >= 0 && $idx <= $max_idx && defined $p->{label}) {
+                $smc_candles[$idx]->{state} = $p->{label};
+                $smc_candles[$idx]->{price} = $p->{price};
+            }
+        }
+    }
+
+    # 3. Mapear Fair Value Gaps (FVG)
+    if (exists $smc_res->{fvgs} && ref($smc_res->{fvgs}) eq 'ARRAY') {
+        for my $fvg (@{ $smc_res->{fvgs} }) {
+            my $start_fvg = $fvg->{start_index};
+            if (defined $start_fvg && $start_fvg >= 0 && $start_fvg <= $max_idx) {
+                my $mapped_fvg = {
+                    %$fvg,
+                    start_idx     => $fvg->{start_index},
+                    mitigated_idx => $fvg->{mitigated_index},
+                    top           => $fvg->{gap_high},
+                    bottom        => $fvg->{gap_low},
+                    type          => $fvg->{direction} eq 'bullish' ? 'bullish_fvg' : 'bearish_fvg',
+                };
+                
+                push @{ $smc_candles[$start_fvg]->{fvgs} }, $mapped_fvg;
+                
+                my $end_fvg = $fvg->{mitigated_index} // $max_idx;
+                $end_fvg = $max_idx if $end_fvg > $max_idx;
+                for my $k ($start_fvg .. $end_fvg) {
+                    push @{ $smc_candles[$k]->{active_fvgs} }, $mapped_fvg;
+                }
+            }
+        }
+    }
+
+    return \@smc_candles;
 }
 
 1;
