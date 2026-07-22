@@ -20,37 +20,67 @@ my %MODE_KEYS = map { $_ => 1 } qw(visible_range session structure zigzag missed
 my %EVENT_KEYS = map { $_ => 1 } qw(bos choch both);
 my %SCOPE_KEYS = map { $_ => 1 } qw(internal external both);
 
-sub new { bless {}, shift }
-sub reset { my $self = shift; $self->{_last_result} = undef; }
+sub new {
+    my ($class, %args) = @_;
+    my $self = {
+        mode           => $args{mode} // 'session',
+        price_levels   => $args{price_levels} // 100,
+        value_area_pct => $args{value_area_pct} // 0.70,
+        context_bars   => $args{context_bars} // 500,
+    };
+    return bless $self, $class;
+}
+sub reset {
+    my ($self) = @_;
+    $self->{last_result} = undef;
+}
 sub get_values { [] }
 
-# Accesor de compatibilidad: devuelve los perfiles del último compute()
-# con los campos mapeados al formato que espera el overlay.
+sub calculate_for_window {
+    my ($self, $market_data, $start, $end, $full_smc) = @_;
+    
+    my $max_idx = $market_data->size() - 1;
+    my $candles = $market_data->get_slice(0, $max_idx);
+    
+    my $settings = {
+        mode           => $self->{mode},
+        price_levels   => $self->{price_levels},
+        value_area_pct => $self->{value_area_pct},
+        context_bars   => $self->{context_bars},
+    };
+    
+    my $res = $self->compute(
+        candles           => $candles,
+        max_visible_index => $end,
+        visible_start     => $start,
+        settings          => $settings,
+        structure_events  => $full_smc // [],
+    );
+    
+    $self->{last_result} = $res;
+    return $res;
+}
+
 sub get_profiles {
-    my $self = shift;
-    my $r = $self->{_last_result};
-    return [] unless $r && $r->{profiles} && @{ $r->{profiles} };
+    my ($self) = @_;
+    return [] unless $self->{last_result} && $self->{last_result}{profiles};
+    
     my @mapped;
-    for my $p (@{ $r->{profiles} }) {
-        my $bins_count = $p->{bins} ? scalar @{ $p->{bins} } : 0;
-        my $range_size = ($p->{max_price} // 0) - ($p->{min_price} // 0);
-        $range_size = 1e-9 if $range_size <= 0;
-        my $tick_size = $bins_count > 0 ? $range_size / $bins_count : 1;
+    for my $prof (@{ $self->{last_result}{profiles} }) {
         push @mapped, {
-            %$p,
-            # Campos renombrados para el overlay
-            start_idx => $p->{start_index},
-            end_idx   => $p->{end_index},
-            range_min => $p->{min_price},
-            tick_size => $tick_size,
-            histogram => [ map { $_->{volume} // 0 } @{ $p->{bins} // [] } ],
-            va_low    => $p->{val_bin_index} // 0,
-            va_high   => $p->{vah_bin_index} // 0,
-            poc_lvl   => $p->{poc_bin_index} // 0,
-            poc       => $p->{poc_price},
+            %$prof,
+            start_idx => $prof->{start_index},
+            end_idx   => $prof->{end_index},
+            vah_price => $prof->{vah},
+            val_price => $prof->{val},
         };
     }
     return \@mapped;
+}
+
+sub get_pocs {
+    my ($self) = @_;
+    return $self->{last_result} ? $self->{last_result}{pocs} : [];
 }
 
 sub compute {
@@ -88,7 +118,7 @@ sub compute {
     }
 
     my @pocs = map { _poc_contract($_) } @profiles;
-    my $result = {
+    return {
         visible     => @profiles ? 1 : 0,
         warning     => @profiles ? undef : 'sin perfiles calculables',
         settings    => $settings,
@@ -99,11 +129,6 @@ sub compute {
         timeframe   => $args{timeframe} // '1m',
         method      => 'overlap_high_low_volume_distribution',
     };
-    # Guardar para get_profiles() (solo cuando se llama sobre instancia)
-    if (ref $class_or_self) {
-        $class_or_self->{_last_result} = $result;
-    }
-    return $result;
 }
 
 sub _normalize_settings {
