@@ -1020,6 +1020,18 @@ sub toggle_visibility {
     return $new_val;
 }
 
+# set_all_visibility($val): activa o desactiva todas las capas de visibilidad.
+sub set_all_visibility {
+    my ($self, $val) = @_;
+    foreach my $key (keys %{$self->{visibility}}) {
+        $self->{visibility}{$key} = $val;
+        if (my $btn = $self->{_sidebar_buttons}{$key}) {
+            $self->_update_button_state($btn, $val);
+        }
+    }
+    $self->request_render();
+}
+
 # _update_button_state: actualiza el color del botón según su estado on/off.
 sub _update_button_state {
     my ($self, $btn, $is_on) = @_;
@@ -1052,14 +1064,106 @@ sub _build_sidebar {
 
     $sidebar->configure(-bg => $bg_panel);
 
+    # 1. Crear el contenedor superior para los botones de control global
+    my $top_frame = $sidebar->Frame(-bg => $bg_panel);
+    $top_frame->pack(-fill => 'x', -padx => 4, -pady => 4, -side => 'top');
+
+    $top_frame->Button(
+        -text             => 'Activar Todo',
+        -bg               => $bg_on,
+        -fg               => $fg_on,
+        -activebackground => '#1E4FD8',
+        -activeforeground => '#FFFFFF',
+        -relief           => 'flat',
+        -font             => 'Helvetica 8 bold',
+        -cursor           => 'hand2',
+        -command          => sub { $self->set_all_visibility(1) },
+    )->pack(-side => 'left', -fill => 'x', -expand => 1, -padx => 1);
+
+    $top_frame->Button(
+        -text             => 'Desactivar',
+        -bg               => $bg_off,
+        -fg               => '#D1D4DC',
+        -activebackground => '#383D4A',
+        -activeforeground => '#FFFFFF',
+        -relief           => 'flat',
+        -font             => 'Helvetica 8 bold',
+        -cursor           => 'hand2',
+        -command          => sub { $self->set_all_visibility(0) },
+    )->pack(-side => 'left', -fill => 'x', -expand => 1, -padx => 1);
+
+    # Separador debajo de los botones de control global
+    $sidebar->Frame(-bg => '#2D3245', -height => 1)
+        ->pack(-fill => 'x', -padx => 4, -pady => [2, 4], -side => 'top');
+
+    # 2. Crear área scrollable (Canvas + Scrollbar)
+    my $scrollbar = $sidebar->Scrollbar(
+        -bg                 => $bg_panel,
+        -troughcolor        => $bg_panel,
+        -activebackground   => $bg_off,
+        -width              => 8,
+        -relief             => 'flat',
+    );
+    my $canvas = $sidebar->Canvas(
+        -bg                 => $bg_panel,
+        -yscrollcommand     => sub { $scrollbar->set(@_) },
+        -highlightthickness => 0,
+        -relief             => 'flat',
+    );
+    
+    $scrollbar->configure(-command => sub { $canvas->yview(@_) });
+    $scrollbar->pack(-side => 'right', -fill => 'y');
+    $canvas->pack(-side => 'left', -fill => 'both', -expand => 1);
+
+    # 3. Crear el Frame interno dentro del Canvas
+    my $scroll_frame = $canvas->Frame(-bg => $bg_panel);
+    my $window_id = $canvas->createWindow(0, 0, -window => $scroll_frame, -anchor => 'nw');
+
+    # Ajustar scrollregion al tamaño dinámico del contenido
+    $scroll_frame->bind('<Configure>', sub {
+        $canvas->configure(-scrollregion => [$canvas->bbox('all')]);
+    });
+
+    # Asegurar que el scroll_frame tenga el mismo ancho que el canvas
+    $canvas->bind('<Configure>', sub {
+        my $width = $canvas->winfo('width');
+        $canvas->itemconfigure($window_id, -width => $width);
+    });
+
+    # Función para enlazar el scroll del mouse (MouseWheel)
+    my $bind_mousewheel;
+    $bind_mousewheel = sub {
+        my ($widget) = @_;
+        $widget->bind('<MouseWheel>', sub {
+            my ($w, $delta) = @_;
+            $canvas->yview('scroll', -$delta/120, 'units') if defined $delta;
+        });
+        # Soporte para Linux (Button-4 y Button-5)
+        $widget->bind('<Button-4>', sub { $canvas->yview('scroll', -1, 'units') });
+        $widget->bind('<Button-5>', sub { $canvas->yview('scroll', 1, 'units') });
+        
+        # Propagar a los hijos
+        for my $child ($widget->children) {
+            $bind_mousewheel->($child);
+        }
+    };
+
+    # Enlazar al canvas y al scroll_frame inicialmente
+    $canvas->bind('<MouseWheel>', sub {
+        my ($w, $delta) = @_;
+        $canvas->yview('scroll', -$delta/120, 'units') if defined $delta;
+    });
+    $canvas->bind('<Button-4>', sub { $canvas->yview('scroll', -1, 'units') });
+    $canvas->bind('<Button-5>', sub { $canvas->yview('scroll', 1, 'units') });
+
     # --- Cierre de sección ---
     my $sep = sub {
         my ($text) = @_;
-        $sidebar->Label(
+        $scroll_frame->Label(
             -text => $text, -bg => $bg_panel, -fg => $fg_label,
             -font => $lbl_font, -anchor => 'w',
         )->pack(-fill => 'x', -padx => 6, -pady => [10, 2]);
-        $sidebar->Frame(-bg => '#2D3245', -height => 1)
+        $scroll_frame->Frame(-bg => '#2D3245', -height => 1)
             ->pack(-fill => 'x', -padx => 4, -pady => [0, 4]);
     };
 
@@ -1068,7 +1172,7 @@ sub _build_sidebar {
         my ($key, $label) = @_;
         my $is_on = $self->{visibility}{$key} // 1;
         my $btn;
-        $btn = $sidebar->Button(
+        $btn = $scroll_frame->Button(
             -text             => $label,
             -bg               => $is_on ? $bg_on : $bg_off,
             -fg               => $is_on ? $fg_on : $fg_off,
@@ -1089,7 +1193,7 @@ sub _build_sidebar {
     # --- Botón de acción simple (sin toggle de visibilidad) ---
     my $make_action = sub {
         my ($label, $cmd) = @_;
-        $sidebar->Button(
+        $scroll_frame->Button(
             -text             => $label,
             -bg               => $bg_off,
             -fg               => '#D1D4DC',
@@ -1154,6 +1258,9 @@ sub _build_sidebar {
     $make_action->('[>] Play',        sub { $self->play_replay()     });
     $make_action->('[||] Pausa',      sub { $self->pause_replay()    });
     $make_action->('[>>] Paso fwd',   sub { $self->step_replay(1)    });
+
+    # Enlazar eventos de mousewheel a todo el contenido dinámico una vez construido
+    $bind_mousewheel->($scroll_frame);
 }
 
 1;
