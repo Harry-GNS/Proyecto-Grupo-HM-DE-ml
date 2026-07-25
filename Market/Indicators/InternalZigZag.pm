@@ -68,6 +68,73 @@ sub compute {
 
     my ($segments, $active_segment) = _segments_from_pivots(\@pivots);
 
+    if (@pivots > 0) {
+        my $last_pivot = $pivots[-1];
+        my $start_idx = $last_pivot->{index};
+        
+        if ($max_idx > $start_idx) {
+            my $type = $last_pivot->{type};
+            my $extreme_val = $type eq 'HIGH' ? 999999999 : -999999999;
+            my $extreme_idx = $start_idx;
+            my $extreme_time = $last_pivot->{time};
+
+            for my $i ($start_idx + 1 .. $max_idx) {
+                last if $i > $#$candles;
+                my $c = $candles->[$i];
+                if ($type eq 'HIGH') {
+                    if ($c->{low} < $extreme_val) {
+                        $extreme_val = $c->{low};
+                        $extreme_idx = $i;
+                        $extreme_time = $c->{timestamp} // $c->{time};
+                    }
+                } else {
+                    if ($c->{high} > $extreme_val) {
+                        $extreme_val = $c->{high};
+                        $extreme_idx = $i;
+                        $extreme_time = $c->{timestamp} // $c->{time};
+                    }
+                }
+            }
+            
+            if ($extreme_idx > $start_idx) {
+                my $pending_seg = {
+                    start_index  => $start_idx,
+                    start_time   => $last_pivot->{time},
+                    start_price  => $last_pivot->{price},
+                    start_kind   => $last_pivot->{type},
+                    end_index    => $extreme_idx,
+                    end_time     => $extreme_time,
+                    end_price    => $extreme_val,
+                    end_kind     => $type eq 'HIGH' ? 'LOW' : 'HIGH',
+                    direction    => $type eq 'HIGH' ? 'bearish' : 'bullish',
+                    confirmed_at => undef,
+                    is_pending   => 1,
+                };
+                
+                if ($extreme_idx < $max_idx) {
+                    my $last_c = $candles->[$max_idx];
+                    my $trailing_seg = {
+                        start_index  => $extreme_idx,
+                        start_time   => $extreme_time,
+                        start_price  => $extreme_val,
+                        start_kind   => $type eq 'HIGH' ? 'LOW' : 'HIGH',
+                        end_index    => $max_idx,
+                        end_time     => $last_c->{timestamp} // $last_c->{time},
+                        end_price    => $last_c->{close},
+                        end_kind     => 'close',
+                        direction    => $type eq 'HIGH' ? 'bullish' : 'bearish',
+                        confirmed_at => undef,
+                        is_pending   => 1,
+                    };
+                    push @$segments, $pending_seg;
+                    $active_segment = $trailing_seg;
+                } else {
+                    $active_segment = $pending_seg;
+                }
+            }
+        }
+    }
+
     return {
         timeframe         => $tf,
         max_visible_index => $max_idx,
@@ -205,11 +272,14 @@ sub _segments_from_pivots {
             start_index  => $prev->{index},
             start_time   => $prev->{time},
             start_price  => $prev->{price},
+            start_kind   => $prev->{type},
             end_index    => $curr->{index},
             end_time     => $curr->{time},
             end_price    => $curr->{price},
+            end_kind     => $curr->{type},
             direction    => $curr->{type} eq 'HIGH' ? 'bullish' : 'bearish',
             confirmed_at => $curr->{confirmed_at},
+            is_pending   => 0,
         };
     }
 

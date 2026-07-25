@@ -587,10 +587,16 @@ sub _map_iz_result_to_chart_candles {
         $max_scan = $n_chart - 1 if $max_scan >= $n_chart;
 
         my $is_high_kind = ($type eq 'HIGH' || $type eq 'high');
+        my $is_close_kind = ($type eq 'CLOSE' || $type eq 'close');
 
         for (my $j = $base_idx; $j <= $max_scan; $j++) {
             my $c = $chart_candles->[$j];
-            if ($is_high_kind) {
+            if ($is_close_kind) {
+                if (defined $c->{close} && abs($c->{close} - $price) < 0.0001) {
+                    $best_idx = $j;
+                    last;
+                }
+            } elsif ($is_high_kind) {
                 if (defined $c->{high} && abs($c->{high} - $price) < 0.0001) {
                     $best_idx = $j;
                     last;
