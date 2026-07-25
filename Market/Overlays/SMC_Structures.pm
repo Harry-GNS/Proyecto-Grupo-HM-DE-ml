@@ -70,11 +70,23 @@ sub render {
 
                 my $color = $ev->{dir} eq 'bullish' ? '#2979FF' : '#FF5252';
 
-                # Atenuación de línea de contratendencia (BOS/CHOCH) usando línea de guiones
-                $c->createLine($x_start, $y, $x_end, $y,
-                    -dash => '-', -fill => $color, -width => 1.5, -tags => ['smc_overlay']);
+                my %line_args = (
+                    -fill => $color,
+                    -tags => ['smc_overlay']
+                );
+                
+                if (exists $ev->{scope} && $ev->{scope} eq 'internal') {
+                    $line_args{-dash}  = '.';
+                    $line_args{-width} = 1.0;
+                } else {
+                    $line_args{-width} = 2.0;
+                }
+
+                $c->createLine($x_start, $y, $x_end, $y, %line_args);
+
+                my $display_text = $ev->{display_type} // $ev->{type};
                 $c->createText(($x_start + $x_end) / 2, $y - 8,
-                    -text => $ev->{type}, -fill => $color,
+                    -text => $display_text, -fill => $color,
                     -font => 'Helvetica 9 bold', -tags => ['smc_overlay']);
             }
         }

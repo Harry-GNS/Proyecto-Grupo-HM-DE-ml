@@ -81,9 +81,12 @@ sub new {
             vp_histogram     => 1,  # Histograma horizontal del VP
             vp_poc           => 1,  # Línea POC
             vp_va            => 1,  # Líneas VAH / VAL
-            anchored_vwap    => 1,  # VWAP Multi-Pivot Anclado
-            vwap_markers     => 1,  # Marcadores de ancla del VWAP
-            vwap_labels      => 1,  # Etiquetas de valor VWAP
+            anchored_vwap          => 1,  # VWAP Multi-Pivot Anclado
+            vwap_markers           => 1,  # Marcadores de ancla del VWAP
+            vwap_labels            => 1,  # Etiquetas de valor VWAP
+            vwap_auto_missed_pivot => 1,
+            vwap_auto_hide_1d      => 1,
+            vwap_manual_show       => 0,
         },
         _sidebar_buttons => {},     # refs a widgets de botón para actualizar su estado
     };

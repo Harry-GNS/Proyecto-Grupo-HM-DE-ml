@@ -3,38 +3,13 @@ package Market::Indicators::InternalZigZag;
 use strict;
 use warnings;
 
-# ============================================================
-#  Market::Indicators::InternalZigZag
-#
-#  ZigZag estructural interno estilo SMC:
-#    - pivotes confirmados con ventana izquierda/derecha
-#    - sin lookahead: un pivot en center se confirma en center + length
-#    - alternancia obligatoria HIGH -> LOW -> HIGH -> LOW
-#    - si aparece un extremo mas fuerte del mismo tipo, reemplaza el
-#      endpoint de la pierna actual en vez de crear micro-segmentos
-#    - filtro por barras minimas y desplazamiento minimo ATR
-#
-#  No mezcla BOS/CHoCH/liquidez. Solo pivotes y segmentos internos.
-# ============================================================
-
 sub new {
     my ($class, %args) = @_;
 
     my $pivot_length = $args{pivot_length} // 5;
-    my $min_leg_bars = $args{min_leg_bars} // 4;
-    my $atr_multiplier = $args{atr_multiplier} // 1.0;
-    my $min_price_move = $args{min_price_move} // 0;
-
-    die 'InternalZigZag::new: pivot_length debe ser > 0'
-        unless defined $pivot_length && $pivot_length =~ /^\d+$/ && $pivot_length > 0;
-    die 'InternalZigZag::new: min_leg_bars debe ser >= 0'
-        unless defined $min_leg_bars && $min_leg_bars =~ /^\d+$/;
-
+    
     my $self = {
         pivot_length  => $pivot_length + 0,
-        min_leg_bars  => $min_leg_bars + 0,
-        atr_multiplier=> $atr_multiplier + 0,
-        min_price_move=> $min_price_move + 0,
     };
 
     bless $self, $class;
@@ -67,6 +42,10 @@ sub compute {
         @pivots = @{ $self->{_cache_pivots} // [] };
     }
 
+    # Pine script logic: ta.highest(high, length*2 + 1)
+    # Pivot High confirmed at i: high[i-length] >= all highs in [i-length*2, i]
+    # For streaming, we check if high[center] is the highest/lowest in [center-len, center+len]
+    
     for my $confirm_idx ($start_idx .. $max_idx) {
         last if $confirm_idx > $#$candles;
         my $center = $confirm_idx - $len;
@@ -74,11 +53,11 @@ sub compute {
         next if $center + $len > $max_idx;
 
         my ($is_high, $is_low) = $self->_confirmed_pivot_flags($candles, $center, $confirm_idx);
+        
         next unless $is_high || $is_low;
 
-        my @candidates = $self->_ordered_candidates(
-            $candles, $atr, $center, $confirm_idx, $is_high, $is_low, \@pivots,
-        );
+        # If both occur on the same candle, evaluate based on close vs open, or preceding trend
+        my @candidates = $self->_ordered_candidates($candles, $atr, $center, $confirm_idx, $is_high, $is_low, \@pivots);
         for my $candidate (@candidates) {
             $self->_apply_candidate(\@pivots, $candidate);
         }
@@ -93,9 +72,6 @@ sub compute {
         timeframe         => $tf,
         max_visible_index => $max_idx,
         pivot_length      => $self->{pivot_length},
-        min_leg_bars      => $self->{min_leg_bars},
-        atr_multiplier    => $self->{atr_multiplier},
-        min_price_move    => $self->{min_price_move},
         pivots            => [ map { _copy_hash($_) } @pivots ],
         debug_pivots      => [ map { _debug_pivot($_) } @pivots ],
         segments          => $segments,
@@ -114,7 +90,7 @@ sub _confirmed_pivot_flags {
     my ($self, $candles, $center, $confirm_idx) = @_;
     my $len = $self->{pivot_length};
     my $start = $center - $len;
-    my $end = $center + $len;
+    my $end = $center + $len; # which is confirm_idx
 
     my $high = $candles->[$center]{high};
     my $low  = $candles->[$center]{low};
@@ -122,8 +98,10 @@ sub _confirmed_pivot_flags {
 
     for my $i ($start .. $end) {
         next if $i == $center;
-
+        
         my $h = $candles->[$i]{high};
+        # Pine script ta.highest logic: it must be strictly greater than everything else,
+        # or >= everything before it and strictly > everything after it to avoid duplicate pivots
         if ($h > $high || ($h == $high && $i > $center)) {
             $is_high = 0;
         }
@@ -197,48 +175,20 @@ sub _apply_candidate {
     my $last = $pivots->[-1];
 
     if ($candidate->{type} eq $last->{type}) {
+        # If it's the same type, we replace it only if it's more extreme
         $pivots->[-1] = $candidate if _more_extreme($candidate, $last);
         return;
     }
 
-    return unless $candidate->{index} > $last->{index};
-
-    my $bars = $candidate->{index} - $last->{index};
-    return if $bars < $self->{min_leg_bars};
-
-    my $move = abs($candidate->{price} - $last->{price});
-    my $min_move = $self->_min_move($candidate, $last);
-    return if $move < $min_move;
-
+    # Alternating type - we add it, no restrictive leg rules
     push @$pivots, $candidate;
     return;
 }
 
-sub _min_move {
-    my ($self, $candidate, $last) = @_;
-    my $atr_a = $candidate->{atr};
-    my $atr_b = $last->{atr};
-    my $atr = 0;
-    if (defined $atr_a && defined $atr_b) {
-        $atr = ($atr_a + $atr_b) / 2;
-    }
-    elsif (defined $atr_a) {
-        $atr = $atr_a;
-    }
-    elsif (defined $atr_b) {
-        $atr = $atr_b;
-    }
-
-    my $atr_move = $atr * $self->{atr_multiplier};
-    my $min_move = $self->{min_price_move};
-    $min_move = $atr_move if $atr_move > $min_move;
-    return $min_move;
-}
-
 sub _more_extreme {
     my ($candidate, $last) = @_;
-    return $candidate->{price} > $last->{price} if $candidate->{type} eq 'HIGH';
-    return $candidate->{price} < $last->{price};
+    return $candidate->{price} >= $last->{price} if $candidate->{type} eq 'HIGH';
+    return $candidate->{price} <= $last->{price};
 }
 
 sub _segments_from_pivots {
@@ -248,60 +198,35 @@ sub _segments_from_pivots {
     return ([], undef) if @$pivots < 2;
 
     for my $i (1 .. $#$pivots) {
-        my $start = $pivots->[$i - 1];
-        my $end = $pivots->[$i];
-        my $seg = _segment_from_pair($start, $end);
-        if ($i == $#$pivots) {
-            return (\@segments, $seg);
-        }
-        push @segments, $seg;
+        my $prev = $pivots->[$i-1];
+        my $curr = $pivots->[$i];
+
+        push @segments, {
+            start_index  => $prev->{index},
+            start_time   => $prev->{time},
+            start_price  => $prev->{price},
+            end_index    => $curr->{index},
+            end_time     => $curr->{time},
+            end_price    => $curr->{price},
+            direction    => $curr->{type} eq 'HIGH' ? 'bullish' : 'bearish',
+            confirmed_at => $curr->{confirmed_at},
+        };
     }
 
-    return (\@segments, undef);
+    return (\@segments, $segments[-1]);
 }
 
-sub _segment_from_pair {
-    my ($start, $end) = @_;
-    my $direction = ($start->{type} eq 'LOW' && $end->{type} eq 'HIGH')
-        ? 'bullish'
-        : 'bearish';
-
-    return {
-        direction       => $direction,
-        start_kind      => $start->{kind},
-        start_index     => $start->{index},
-        start_time      => $start->{time},
-        start_price     => $start->{price},
-        end_kind        => $end->{kind},
-        end_index       => $end->{index},
-        end_time        => $end->{time},
-        end_price       => $end->{price},
-        created_at      => $end->{confirmed_at},
-        created_time    => $end->{confirmed_time},
-        updated_at      => $end->{confirmed_at},
-        updated_time    => $end->{confirmed_time},
-        repaint_updates => 0,
-        completed_at    => $end->{confirmed_at},
-        completed_time  => $end->{confirmed_time},
-    };
+sub _copy_hash {
+    my ($h) = @_;
+    return { %$h };
 }
 
 sub _debug_pivot {
     my ($p) = @_;
-    return {
-        index      => $p->{index},
-        time       => $p->{time},
-        type       => $p->{type},
-        price      => $p->{price},
-        confirmed  => $p->{confirmed} ? 1 : 0,
-        confirmed_at => $p->{confirmed_at},
-        confirmed_time => $p->{confirmed_time},
-    };
-}
-
-sub _copy_hash {
-    my ($hash) = @_;
-    return { %$hash };
+    my $d = _copy_hash($p);
+    delete $d->{atr};
+    delete $d->{pivot_length};
+    return $d;
 }
 
 1;
