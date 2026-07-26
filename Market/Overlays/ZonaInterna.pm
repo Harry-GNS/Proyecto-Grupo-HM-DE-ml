@@ -72,7 +72,39 @@ sub render {
 
         my $color = $self->{colors}->{$ratio_str} // $self->{default_color};
 
-        # Dibujar línea horizontal
+        # --- Marcadores de borde para niveles fuera del rango visible ---
+        my $tri_x = $right_margin_x - 10;
+        my $tri_sz = 5;   # mitad del lado del triángulo
+
+        if ($y < 6) {
+            # Nivel por ENCIMA del viewport → triángulo apuntando arriba en borde superior
+            my $ty = 4;
+            $c->createPolygon(
+                $tri_x - $tri_sz, $ty + $tri_sz,
+                $tri_x + $tri_sz, $ty + $tri_sz,
+                $tri_x,           $ty - $tri_sz,
+                -fill    => $color,
+                -outline => '',
+                -tags    => ['zona_interna_overlay'],
+            );
+            next;
+        }
+
+        if ($y > $height - 6) {
+            # Nivel por DEBAJO del viewport → triángulo apuntando abajo en borde inferior
+            my $ty = $height - 4;
+            $c->createPolygon(
+                $tri_x - $tri_sz, $ty - $tri_sz,
+                $tri_x + $tri_sz, $ty - $tri_sz,
+                $tri_x,           $ty + $tri_sz,
+                -fill    => $color,
+                -outline => '',
+                -tags    => ['zona_interna_overlay'],
+            );
+            next;
+        }
+
+        # --- Nivel dentro del rango visible: dibujo normal (línea + etiqueta) ---
         $c->createLine(
             $x1, $y, $x2, $y,
             -fill  => $color,

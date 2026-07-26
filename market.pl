@@ -210,6 +210,12 @@ $indicators->register('Anchored_VWAP',
     )
 );
 
+# Strategy Builder (DIY): Supply/Demand, soportes/resistencias 4h-D-W,
+# tendlines y canales. Se calcula como paso 9 de IndicatorManager, despues de
+# que ATR, Liquidez, SMC y pivotes esten disponibles en el cache.
+use Market::Indicators::Strategy_Builder;
+$indicators->register('Strategy_Builder', Market::Indicators::Strategy_Builder->new());
+
 # ==============================================================================
 # DEPURACIÓN: Verificar detección de BOS y CHOCH
 # ==============================================================================

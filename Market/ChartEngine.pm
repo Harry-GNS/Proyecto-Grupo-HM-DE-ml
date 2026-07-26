@@ -13,6 +13,7 @@ use Market::Overlays::SMC_Structures;
 use Market::Overlays::ZigZag_Trend;
 use Market::Overlays::Volume_Profile;
 use Market::Overlays::Anchored_VWAP;
+use Market::Overlays::Strategy_Builder;
 use Market::Overlays::InternalZigZag;
 use Market::Overlays::PivotMissedReversal;
 use Market::Overlays::ZonaInterna;
@@ -87,6 +88,13 @@ sub new {
             vwap_auto_missed_pivot => 1,
             vwap_auto_hide_1d      => 1,
             vwap_manual_show       => 0,
+            # --- Strategy Builder (DIY) ---
+            strategy         => 1,  # Master switch del Strategy Builder
+            sd_zones         => 1,  # Zonas Supply / Demand
+            sr_htf           => 1,  # S/R de 4h / diario / semanal
+            sb_channels      => 1,  # Canales de tendencia
+            sb_trendlines    => 0,  # Trendlines sueltas (ruidosas: off por defecto)
+            daily_levels     => 0,  # Cuerpo/mecha de la vela diaria previa
         },
         _sidebar_buttons => {},     # refs a widgets de botón para actualizar su estado
     };
@@ -103,6 +111,7 @@ sub new {
     $self->{zigzag_overlay}          = Market::Overlays::ZigZag_Trend->new(canvas => $self->{price_canvas});
     $self->{vp_overlay}              = Market::Overlays::Volume_Profile->new(canvas => $self->{price_canvas});
     $self->{vwap_overlay}            = Market::Overlays::Anchored_VWAP->new(canvas => $self->{price_canvas});
+    $self->{strategy_overlay}        = Market::Overlays::Strategy_Builder->new(canvas => $self->{price_canvas});
     $self->{internal_zigzag_overlay} = Market::Overlays::InternalZigZag->new(canvas => $self->{price_canvas});
     $self->{pmr_overlay}             = Market::Overlays::PivotMissedReversal->new(canvas => $self->{price_canvas});
     $self->{zona_interna_overlay}    = Market::Overlays::ZonaInterna->new(canvas => $self->{price_canvas});
@@ -223,6 +232,14 @@ sub render {
     # ========================================================
     my $mr_states = $self->{indicators}->get('MarketRegime');
     $self->{market_regime_overlay}->render($scale, $mr_states, $start, $vis);
+
+    # ========================================================
+    # Overlay Strategy Builder (Supply/Demand, S/R 4h-D-W,
+    # canales y trendlines). El calculo lo hace IndicatorManager
+    # en el paso 9; aqui solo se dibuja.
+    # ========================================================
+    my $sb_raw = $self->{indicators}->get_raw('Strategy_Builder');
+    $self->{strategy_overlay}->render($scale, $sb_raw, $start, $vis);
 
     # ========================================================
     # Overlay Volume Profile (Fase 2 — Sección 7)
@@ -1365,6 +1382,15 @@ sub _build_sidebar {
     $make_toggle->('vwap_auto_hide_1d',      'Ocultar automático en 1D o superior');
     $sep->('VWAP MANUAL INDEPENDIENTE');
     $make_toggle->('vwap_manual_show',       'Agregar / mostrar VWAP manual');
+
+    # ── Sección: Strategy Builder (DIY) ──────────────────────
+    $sep->('Strategy Builder');
+    $make_toggle->('strategy',         'SB  Strategy ON/OFF');
+    $make_toggle->('sd_zones',         'SD  Supply / Demand');
+    $make_toggle->('sr_htf',           'SR  S/R 4h · D · W');
+    $make_toggle->('sb_channels',      'CN  Canales');
+    $make_toggle->('sb_trendlines',    'TL  Trendlines');
+    $make_toggle->('daily_levels',     'PD  Niveles diaria previa');
 
     # ── Sección: Replay ──────────────────────────────────────
     $sep->('Replay');

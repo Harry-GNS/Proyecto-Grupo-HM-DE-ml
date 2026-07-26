@@ -3,6 +3,7 @@ package Market::MarketData;
 use strict;
 use warnings;
 use POSIX qw(floor);
+use Time::Local qw(timegm_modern);
 
 sub new {
     my ($class) = @_;
@@ -47,6 +48,7 @@ sub build_tf_candles {
     my $base_data = $self->{data}->{'1m'};
     my @aggregated;
     my %bucket_map;
+    my %week_start;   # cache fecha -> domingo de su semana (una entrada por dia)
 
     for my $candle (@$base_data) {
         my $ts = $candle->{timestamp};
@@ -60,14 +62,37 @@ sub build_tf_candles {
             next; 
         }
 
-        my $day_minute = $hour * 60 + $min;
-        my $bucket     = floor($day_minute / $n) * $n;
-        my $key        = "$date:$bucket";
+        # Agrupacion en buckets segun la temporalidad destino:
+        #   - Intradia (Nm / Nh): por minuto-del-dia dentro de la fecha.
+        #   - D: la fecha natural completa.
+        #   - W: la semana bursatil anclada al DOMINGO. La sesion de futuros
+        #        abre el domingo a las 17:00, de modo que ese domingo pertenece
+        #        a la semana que empieza, no a la que termino el viernes.
+        # Nota: no se puede derivar D ni W de $day_minute, porque floor() de un
+        # minuto-del-dia (max 1439) entre 1440 o 10080 da siempre 0 y la clave
+        # acabaria agrupando por fecha en ambos casos (W quedaba igual que D).
+        my ($key, $bucket_date, $bucket_minute);
+        if ($target_tf eq 'W') {
+            $bucket_date   = $week_start{$date} //= _week_start_date($date);
+            $bucket_minute = 0;
+            $key           = "W:$bucket_date";
+        }
+        elsif ($target_tf eq 'D') {
+            $bucket_date   = $date;
+            $bucket_minute = 0;
+            $key           = "D:$date";
+        }
+        else {
+            my $day_minute = $hour * 60 + $min;
+            $bucket_date   = $date;
+            $bucket_minute = floor($day_minute / $n) * $n;
+            $key           = "$date:$bucket_minute";
+        }
 
         if (!exists $bucket_map{$key}) {
-            my $bucket_hour = floor($bucket / 60);
-            my $bucket_min  = $bucket % 60;
-            my $bucket_ts   = sprintf("%sT%02d:%02d:00", $date, $bucket_hour, $bucket_min);
+            my $bucket_hour = floor($bucket_minute / 60);
+            my $bucket_min  = $bucket_minute % 60;
+            my $bucket_ts   = sprintf("%sT%02d:%02d:00", $bucket_date, $bucket_hour, $bucket_min);
             if ($ts =~ /([-+]\d{2}:\d{2})$/) { $bucket_ts .= $1; }
 
             push @aggregated, {
@@ -90,6 +115,19 @@ sub build_tf_candles {
     }
 
     $self->{data}->{$target_tf} = \@aggregated;
+}
+
+# Devuelve la fecha 'YYYY-MM-DD' del domingo que abre la semana bursatil a la
+# que pertenece $date. Funcion pura; quien la llama memoiza el resultado.
+sub _week_start_date {
+    my ($date) = @_;
+
+    my ($y, $m, $d) = split /-/, $date;
+    my $epoch = timegm_modern(0, 0, 0, $d + 0, $m - 1, $y + 0);
+    my $dow   = (gmtime($epoch))[6];                    # 0 = domingo
+    my @start = gmtime($epoch - $dow * 86400);
+
+    return sprintf('%04d-%02d-%02d', $start[5] + 1900, $start[4] + 1, $start[3]);
 }
 
 sub build_timeframes {

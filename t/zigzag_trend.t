@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# Tests unitarios para Market::Indicators::ZigZag_Trend
+# Tests unitarios para Market::Indicators::ZigZagTrend
 # Usa velas sintéticas con pivotes conocidos de antemano.
 #
 # Ejecutar con:  perl t/zigzag_trend.t
@@ -12,7 +12,7 @@ use FindBin;
 use lib "$FindBin::Bin/..";
 
 use Test::More;
-use Market::Indicators::ZigZag_Trend;
+use Market::Indicators::ZigZagTrend;
 
 # =============================================================================
 # HELPERS: MarketData mínimo en memoria para los tests
@@ -33,15 +33,27 @@ use Market::Indicators::ZigZag_Trend;
     }
 }
 
-# Construye un marketdata en memoria y ejecuta calculate_batch
+# Procesa el lote y devuelve el resultado completo de compute().
+# Nota: este test se escribio contra un API anterior (calculate_batch,
+# pivot_high_uses_low). Se traduce aqui el nombre del parametro para no
+# duplicar la traduccion en cada bloque.
 sub run_batch {
     my ($candles_ref, %opts) = @_;
-    my $md = FakeMarketData->new();
-    $md->add_candle($_) for @$candles_ref;
-    my $zz = Market::Indicators::ZigZag_Trend->new(%opts);
-    $zz->calculate_batch($md);
-    return $zz->get_values();
+
+    if (exists $opts{pivot_high_uses_low}) {
+        $opts{high_pivot_price_source} =
+            delete($opts{pivot_high_uses_low}) ? 'low' : 'high';
+    }
+
+    my $zz = Market::Indicators::ZigZagTrend->new(%opts);
+    return $zz->compute(
+        candles           => $candles_ref,
+        max_visible_index => $#$candles_ref,
+    );
 }
+
+# Azucar: solo la serie de valores por vela.
+sub run_values { return run_batch(@_)->{values} }
 
 # Genera una vela simple (OHLC todos iguales excepto high y low explícitos)
 sub candle {
@@ -64,7 +76,7 @@ sub candle {
 
     # Creamos el indicador a mano para inspeccionar estado barra a barra
     my $md = FakeMarketData->new();
-    my $zz = Market::Indicators::ZigZag_Trend->new(swing_length => 3);
+    my $zz = Market::Indicators::ZigZagTrend->new(swing_length => 3);
 
     # Antes de procesar cualquier barra, el estado interno es undef
     is($zz->{_is_bullish}, undef, "Test 1a: estado inicial es undef antes de cualquier barra");
@@ -92,7 +104,7 @@ sub candle {
         candle(100, 200, 95,  105),   # 2  — high extremo → bullish
         candle(100, 130, 92,  103),   # 3  — high < 200 → swing_high sigue siendo 200
     );
-    my $data = run_batch(\@candles, swing_length => 3);
+    my $data = run_values(\@candles, swing_length => 3);
 
     is($data->[2]{trend}, 'bullish', "Test 2: high==swing_high activa tendencia bullish");
     is($data->[3]{trend}, 'bullish', "Test 2b: tendencia se mantiene bullish si no hay nueva condición");
@@ -109,7 +121,7 @@ sub candle {
         candle(100, 130, 50,  103),   # 3  — low extremo (50) → bearish
         candle(100, 125, 70,  100),   # 4  — low > 50 → swing_low sigue siendo 50
     );
-    my $data = run_batch(\@candles, swing_length => 3);
+    my $data = run_values(\@candles, swing_length => 3);
 
     is($data->[2]{trend}, 'bullish', "Test 3: setup bullish en barra 2");
     is($data->[3]{trend}, 'bearish', "Test 3b: low==swing_low activa tendencia bearish");
@@ -129,7 +141,7 @@ sub candle {
         candle(100, 115, 88, 102),   # 1
         candle(100, 999,  1, 100),   # 2  — HIGH y LOW extremos simultáneos
     );
-    my $data = run_batch(\@candles, swing_length => 3);
+    my $data = run_values(\@candles, swing_length => 3);
 
     is($data->[2]{trend}, 'bearish',
         "Test 4 (edge case): high==swing_high Y low==swing_low en misma barra → bearish (igual que Pine)");
@@ -154,11 +166,11 @@ sub candle {
         candle(100, 200, 85, 100),   # 1  — swing_high de la ventana [0..1]
         candle(100, 150, 80, 100),   # 2  — high < 200 → confirma pivote alto en barra 1
     );
-    my $data = run_batch(\@candles, swing_length => 2, pivot_high_uses_low => 1);
+    my $data = run_values(\@candles, swing_length => 2, pivot_high_uses_low => 1);
 
-    my $ph = $data->[2]{pivot_high};
+    my $ph = $data->[2]{high_pivot};
     ok(defined $ph, "Test 5: pivote alto definido en barra 2");
-    is($ph->{bar_index}, 1,  "Test 5b: barIndexHigh == 1 (barra anterior)");
+    is($ph->{index}, 1,  "Test 5b: barIndexHigh == 1 (barra anterior)");
     is($ph->{price},     85, "Test 5c: priceHigh == low[1] == 85 (fiel al original)");
 }
 
@@ -176,11 +188,11 @@ sub candle {
         candle(100, 105, 50, 100),   # 1  — swing_low de la ventana
         candle(100, 108, 70, 100),   # 2  — low > 50 → confirma pivote bajo en barra 1
     );
-    my $data = run_batch(\@candles, swing_length => 2);
+    my $data = run_values(\@candles, swing_length => 2);
 
-    my $pl = $data->[2]{pivot_low};
+    my $pl = $data->[2]{low_pivot};
     ok(defined $pl, "Test 6: pivote bajo definido en barra 2");
-    is($pl->{bar_index}, 1,  "Test 6b: barIndexLow == 1 (barra anterior)");
+    is($pl->{index}, 1,  "Test 6b: barIndexLow == 1 (barra anterior)");
     is($pl->{price},     50, "Test 6c: priceLow == low[1] == 50");
 }
 
@@ -200,17 +212,22 @@ sub candle {
         candle(100, 125, 10,  100),   # 4  bearish ← low extremo
         candle(100, 122, 50,  100),   # 5
     );
-    my $data = run_batch(\@candles, swing_length => 3);
+    # Los tramos cerrados ya no viajan dentro del registro por vela (ahi solo
+    # queda el contador 'completed_segments'); se leen del resultado de compute.
+    my $res  = run_batch(\@candles, swing_length => 3);
+    my $segs = $res->{segments} // [];
 
-    my $segs_at_5 = $data->[5]{segments};
-    ok(defined $segs_at_5 && scalar @$segs_at_5 >= 1,
+    ok(scalar @$segs >= 1,
         "Test 7: al menos 1 tramo completado tras el cambio de tendencia");
 
-    if (scalar @$segs_at_5 >= 1) {
-        my $seg = $segs_at_5->[-1];
-        ok(defined $seg->{from_bar}   && defined $seg->{to_bar},   "Test 7b: tramo tiene from_bar y to_bar");
-        ok(defined $seg->{from_price} && defined $seg->{to_price},  "Test 7c: tramo tiene from_price y to_price");
-        ok($seg->{direction} =~ /^(bullish|bearish)$/,              "Test 7d: tramo tiene direction válido");
+    if (scalar @$segs >= 1) {
+        my $seg = $segs->[-1];
+        ok(defined $seg->{start_index} && defined $seg->{end_index},
+            "Test 7b: tramo tiene start_index y end_index");
+        ok(defined $seg->{start_price} && defined $seg->{end_price},
+            "Test 7c: tramo tiene start_price y end_price");
+        ok($seg->{direction} =~ /^(bullish|bearish)$/,
+            "Test 7d: tramo tiene direction válido");
     }
 }
 
@@ -224,9 +241,9 @@ sub candle {
         candle(100, 200, 85, 100),   # 1  — high=200, low=85
         candle(100, 150, 80, 100),   # 2  — confirma pivote alto en barra 1
     );
-    my $data = run_batch(\@candles, swing_length => 2, pivot_high_uses_low => 0);
+    my $data = run_values(\@candles, swing_length => 2, pivot_high_uses_low => 0);
 
-    my $ph = $data->[2]{pivot_high};
+    my $ph = $data->[2]{high_pivot};
     ok(defined $ph, "Test 8: pivote alto definido con pivot_high_uses_low=0");
     is($ph->{price}, 200, "Test 8b: priceHigh == high[1] == 200 cuando pivot_high_uses_low=0");
 }
@@ -242,7 +259,7 @@ sub candle {
         candle(100, 125, 10,  100),   # 3  bearish
         candle(100, 122, 50,  100),   # 4  sigue bearish
     );
-    my $data = run_batch(\@candles, swing_length => 3);
+    my $data = run_values(\@candles, swing_length => 3);
 
     # Barra 4: tendencia no cambió → trend_changed debe ser 0
     is($data->[4]{trend_changed}, 0,

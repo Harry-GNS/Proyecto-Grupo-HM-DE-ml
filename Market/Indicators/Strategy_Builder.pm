@@ -66,7 +66,19 @@ my %TREND_CHANNEL_CONFIG = (
 my $NEXT_ID = 1;
 sub _new_id { return 'STG_' . sprintf('%04d', $NEXT_ID++) }
 
-sub new  { bless {}, shift }
+# support_resistance: emitir o no los niveles pivot tradicionales
+#   (P/R1/S1/R2/S2) derivados de la vela previa de la serie recibida.
+#   Por defecto 0: sobre velas de 1 minuto son 5 niveles por vela y no
+#   corresponden a ningun requisito (el documento pide S/R de 4h, diario y
+#   semanal, que IndicatorManager resuelve llamando a compute() con la serie
+#   agregada de cada temporalidad y este flag activado).
+sub new {
+    my ($class, %args) = @_;
+    return bless {
+        support_resistance => $args{support_resistance} ? 1 : 0,
+    }, $class;
+}
+
 sub reset { $NEXT_ID = 1 }
 sub get_values { [] }
 
@@ -83,6 +95,12 @@ sub compute {
     my $pivots     = $args{pivots}            // [];
     my $daily      = $args{daily_candles}     // [];
 
+    # El argumento manda sobre la config de la instancia; si no hay ninguno
+    # de los dos, no se emiten (ver comentario en new).
+    my $want_sr = exists $args{support_resistance}
+        ? ($args{support_resistance} ? 1 : 0)
+        : (ref($class_or_self) ? ($class_or_self->{support_resistance} // 0) : 0);
+
     $NEXT_ID = 1;
     $max_idx = $#$candles if $max_idx > $#$candles;
     return _empty_result() if $max_idx < 1;
@@ -95,8 +113,9 @@ sub compute {
     my $range_filter = _build_range_filter($candles, $max_idx, $tf);
     my ($supply, $demand, $order_blocks) =
         _build_zones($candles, $atr_series, $vol_avg, $liq_evts, $structs, $max_idx, $tf);
-    my $support_resistance =
-        _build_support_resistance($pivots, $candles, $atr_series, $max_idx, $tf);
+    my $support_resistance = $want_sr
+        ? _build_support_resistance($pivots, $candles, $atr_series, $max_idx, $tf)
+        : [];
     my ($trendlines, $channels) =
         _build_trendlines_and_channels($pivots, $candles, $atr_series, $max_idx, $tf);
     my $daily_levels =

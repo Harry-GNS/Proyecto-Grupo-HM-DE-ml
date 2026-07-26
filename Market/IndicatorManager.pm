@@ -67,9 +67,9 @@ sub recalculate_internal_zigzag {
 
     if (exists $self->{indicators}->{ZonaInterna}) {
         my $zi_ind = $self->{indicators}->{ZonaInterna};
-        my $zz_data = $self->{computed_cache}->{InternalZigZag_raw};
+        my $zz_data = $self->{computed_cache}->{ZigZagTrend_raw};
         if (!$zz_data || !ref($zz_data->{segments}) || scalar(@{$zz_data->{segments}}) < 1) {
-            $zz_data = $self->{computed_cache}->{ZigZagTrend_raw};
+            $zz_data = $self->{computed_cache}->{InternalZigZag_raw};
         }
         
         my $res = $zi_ind->compute(
@@ -172,6 +172,7 @@ sub recalculate_all {
             max_visible_index => $max_idx,
             timeframe => $timeframe,
         );
+        $self->{computed_cache}->{ZigZagTrend_raw} = $res;
         $self->{computed_cache}->{ZigZagTrend} = $res->{values} // $zz_ind->get_values();
     }
     
@@ -290,9 +291,9 @@ sub recalculate_all {
     # -- 8. ZonaInterna --
     if (exists $self->{indicators}->{ZonaInterna}) {
         my $zi_ind = $self->{indicators}->{ZonaInterna};
-        my $zz_data = $self->{computed_cache}->{InternalZigZag_raw};
+        my $zz_data = $self->{computed_cache}->{ZigZagTrend_raw};
         if (!$zz_data || !ref($zz_data->{segments}) || scalar(@{$zz_data->{segments}}) < 1) {
-            $zz_data = $self->{computed_cache}->{ZigZagTrend_raw};
+            $zz_data = $self->{computed_cache}->{InternalZigZag_raw};
         }
         
         my $res = $zi_ind->compute(
@@ -304,9 +305,36 @@ sub recalculate_all {
         $self->{computed_cache}->{ZonaInterna} = $res->{levels} // [];
     }
     
+    # -- 9. Strategy_Builder --
+    # Va al final a proposito: se alimenta del ATR, de la liquidez, de las
+    # estructuras SMC y de los pivotes que los pasos 1-6 dejaron en el cache.
+    if (exists $self->{indicators}->{Strategy_Builder}) {
+        my $sb_ind = $self->{indicators}->{Strategy_Builder};
+
+        my $res = $sb_ind->compute(
+            candles           => $candles,
+            atr_series        => $atr_series,
+            max_visible_index => $max_idx,
+            timeframe         => $timeframe,
+            liquidity_levels  => $liq_res ? ($liq_res->{levels}     // []) : [],
+            liquidity_events  => $liq_res ? ($liq_res->{events}     // []) : [],
+            structure_events  => $smc_res ? ($smc_res->{structures} // []) : [],
+            pivots            => $smc_res ? ($smc_res->{pivots}     // []) : [],
+            daily_candles     => $market_data->get_candles_for_tf('D'),
+        );
+
+        # Soportes/resistencias de 4h, diario y semanal: cada temporalidad se
+        # resuelve sobre su propia serie agregada, no sobre la del grafico.
+        $res->{support_resistance_by_tf} =
+            $self->_htf_support_resistance($sb_ind, $market_data, $timeframe);
+
+        $self->{computed_cache}->{Strategy_Builder_raw} = $res;
+        $self->{computed_cache}->{Strategy_Builder}     = $res;
+    }
+
     # Legacy fallbacks for any custom indicators
     foreach my $name (keys %{ $self->{indicators} }) {
-        next if grep { $_ eq $name } qw(ATR ZigZagTrend InternalZigZag PivotMissedReversal SMC_Structures Liquidity MarketRegime ZonaInterna);
+        next if grep { $_ eq $name } qw(ATR ZigZagTrend InternalZigZag PivotMissedReversal SMC_Structures Liquidity MarketRegime ZonaInterna Strategy_Builder);
         my $ind = $self->{indicators}->{$name};
         if ($ind->can('calculate_batch')) {
             $ind->calculate_batch($market_data);
@@ -491,6 +519,43 @@ sub _build_liquidity_candles_array {
     }
 
     return \@liq_candles;
+}
+
+# Soportes/resistencias en temporalidades altas (requisito 4h/diario/semanal).
+# Strategy_Builder deriva los niveles pivot tradicionales (P/R1/S1/R2/S2) de la
+# vela PREVIA de la serie que reciba, asi que basta con alimentarlo con las
+# velas agregadas de cada temporalidad. Solo se conserva support_resistance;
+# el resto del resultado se descarta.
+#
+# Causalidad: el nivel siempre sale de $candles->[$i-1], nunca de la ultima
+# vela del array, que durante el Replay es la que todavia se esta formando.
+sub _htf_support_resistance {
+    my ($self, $sb_ind, $market_data, $chart_tf) = @_;
+
+    my %by_tf;
+    for my $tf (qw(4h D W)) {
+        next if $tf eq $chart_tf;   # ya cubierto por el calculo principal
+
+        my $htf_candles = $market_data->get_candles_for_tf($tf);
+        next unless $htf_candles && @$htf_candles >= 2;
+
+        my $res = $sb_ind->compute(
+            candles            => $htf_candles,
+            atr_series         => $self->_compute_atr_for_candles($htf_candles, 14),
+            max_visible_index  => $#$htf_candles,
+            timeframe          => $tf,
+            support_resistance => 1,   # aqui SI se quieren: es el requisito 6
+        );
+
+        # compute() reinicia su contador de IDs en cada llamada; se prefija con
+        # la temporalidad para que no colisionen entre series.
+        my $levels = $res->{support_resistance} // [];
+        $_->{id} = $tf . '_' . $_->{id} for @$levels;
+
+        $by_tf{$tf} = $levels;
+    }
+
+    return \%by_tf;
 }
 
 sub _compute_atr_for_candles {
