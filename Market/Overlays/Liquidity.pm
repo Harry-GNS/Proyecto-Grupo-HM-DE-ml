@@ -40,8 +40,9 @@ sub render {
     my $range = $max_val - $min_val;
     return if $range <= 0;
 
-    my $vp_start = int($offset_frac);
-    my $vp_end   = int($offset_frac) + $visible_bars + 2;
+    # Viewport range in ABSOLUTE bar indices (not relative offset)
+    my $vp_start = $start_idx_viewport;
+    my $vp_end   = $start_idx_viewport + $visible_bars + 2;
 
     # =========================================================================
     # 1. LÍNEAS ESTRUCTURALES Y ETIQUETAS BASE O RESUELTAS (BSL, SSL, EQH, EQL)
@@ -78,10 +79,12 @@ sub render {
                 my $res = $lv->{status} // 'ACTIVE';
                 my $text  = '';
                 my $color = '#FF5252';
+                my $show_events = $show->('liq_events');
 
                 if ($state eq 'swing_high') {
                     $color = '#FF5252';
                     if ($res eq 'ACTIVE') { $text = 'BSL'; }
+                    elsif (!$show_events)  { $text = 'BSL'; }
                     elsif ($res eq 'SWEPT') { $text = 'SWEEP ↑'; }
                     elsif ($res eq 'GRABBED' || $res eq 'BIG_GRAB') { $text = 'LQ GRAB'; $color = '#FF9100'; }
                     elsif ($res eq 'RUN' || $res eq 'BROKEN' || $res eq 'ACCEPTANCE') { $text = 'LQ RUN'; $color = '#2979FF'; }
@@ -89,6 +92,7 @@ sub render {
                 elsif ($state eq 'swing_low') {
                     $color = '#00E676';
                     if ($res eq 'ACTIVE') { $text = 'SSL'; }
+                    elsif (!$show_events)  { $text = 'SSL'; }
                     elsif ($res eq 'SWEPT') { $text = 'SWEEP ↓'; }
                     elsif ($res eq 'GRABBED' || $res eq 'BIG_GRAB') { $text = 'LQ GRAB'; $color = '#FF9100'; }
                     elsif ($res eq 'RUN' || $res eq 'BROKEN' || $res eq 'ACCEPTANCE') { $text = 'LQ RUN'; $color = '#2979FF'; }
@@ -96,6 +100,7 @@ sub render {
                 elsif ($state eq 'eqh') {
                     $color = $self->{color_eqh};
                     if ($res eq 'ACTIVE') { $text = 'EQH'; }
+                    elsif (!$show_events)  { $text = 'EQH'; }
                     elsif ($res eq 'SWEPT') { $text = 'SWEEP ↑'; }
                     elsif ($res eq 'GRABBED' || $res eq 'BIG_GRAB') { $text = 'LQ GRAB'; $color = '#FF9100'; }
                     elsif ($res eq 'RUN' || $res eq 'BROKEN' || $res eq 'ACCEPTANCE') { $text = 'LQ RUN'; $color = '#2979FF'; }
@@ -103,6 +108,7 @@ sub render {
                 elsif ($state eq 'eql') {
                     $color = $self->{color_eql};
                     if ($res eq 'ACTIVE') { $text = 'EQL'; }
+                    elsif (!$show_events)  { $text = 'EQL'; }
                     elsif ($res eq 'SWEPT') { $text = 'SWEEP ↓'; }
                     elsif ($res eq 'GRABBED' || $res eq 'BIG_GRAB') { $text = 'LQ GRAB'; $color = '#FF9100'; }
                     elsif ($res eq 'RUN' || $res eq 'BROKEN' || $res eq 'ACCEPTANCE') { $text = 'LQ RUN'; $color = '#2979FF'; }
