@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import os
+import joblib
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
@@ -9,6 +10,8 @@ from tensorflow.keras.layers import LSTM, Dense, Dropout
 DATA_CSV = "Data/lstm_dataset.csv"
 DATA_EXCEL = "Data/lstm_dataset.xlsx"
 MODEL_PATH = "Data/lstm_model.h5"
+SCALER_X_PATH = "Data/scaler_x.pkl"
+SCALER_Y_PATH = "Data/scaler_y.pkl"
 
 print(f"Loading dataset from {DATA_CSV}...")
 df = pd.read_csv(DATA_CSV)
@@ -21,14 +24,16 @@ df.to_excel(DATA_EXCEL, index=False)
 feature_cols = [
     'supply_bottom_pips_60m', 'demand_top_pips_60m', 'demand_bottom_pips_60m',
     'trendline_upper_pips_60m', 'trendline_lower_pips_60m', 'channel_width_pips_60m',
-    'ghost_high_pips_60m', 'ghost_low_pips_60m'
+    'ghost_high_pips_60m', 'ghost_low_pips_60m',
+    'ob_top_pips', 'ob_bottom_pips', 'fvg_top_pips', 'fvg_bottom_pips',
+    'bos_choch_pips', 'eq_level_pips', 'vwap_pips',
+    'poc_pips', 'vah_pips', 'val_pips', 'atr_1m'
 ]
 target_col = 'target_5m'
 
 print("Preprocessing data...")
-# Fill missing values (e.g., when no active zone or target)
-# We can fill distances with a large number or 0, let's use forward fill then 0
-df[feature_cols] = df[feature_cols].fillna(method='ffill').fillna(0)
+# Fill missing values with 0 (assuming missing means indicator not active or no distance)
+df[feature_cols] = df[feature_cols].fillna(0)
 # Drop rows where target is NaN (usually the end of the dataset)
 df_clean = df.dropna(subset=[target_col]).copy()
 
@@ -39,6 +44,10 @@ X_scaled = scaler_x.fit_transform(df_clean[feature_cols])
 # Scale target
 scaler_y = MinMaxScaler()
 y_scaled = scaler_y.fit_transform(df_clean[[target_col]])
+
+# Save scalers for prediction
+joblib.dump(scaler_x, SCALER_X_PATH)
+joblib.dump(scaler_y, SCALER_Y_PATH)
 
 # Create sequences
 SEQ_LEN = 10
@@ -57,7 +66,7 @@ y_train, y_test = y[:split], y[split:]
 
 print(f"Training data shape: X={X_train.shape}, y={y_train.shape}")
 
-# Build LSTM model
+# Build LSTM model (2 hidden layers)
 model = Sequential([
     LSTM(50, return_sequences=True, input_shape=(SEQ_LEN, len(feature_cols))),
     Dropout(0.2),
