@@ -214,8 +214,8 @@ for my $i (0 .. $#$candles) {
     # ATR
     my $atr_val = $atr_vals->[$i] // '';
 
-    my $fmt = sub { defined $_[0] ? sprintf("%.2f", abs($_[0] - $close)) : '' };
-    my $fmt_raw = sub { defined $_[0] ? sprintf("%.2f", $_[0]) : '' };
+    my $fmt = sub { defined $_[0] ? sprintf("%.2f", abs($_[0] - $close)) : '0.00' };
+    my $fmt_raw = sub { defined $_[0] ? sprintf("%.2f", $_[0]) : '0.00' };
     
     # Targets
     my $t3  = ($i + 3 <= $#$candles)  ? $candles->[$i+3]->{close} - $close : '';
