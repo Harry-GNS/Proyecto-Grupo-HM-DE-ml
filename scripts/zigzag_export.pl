@@ -224,7 +224,7 @@ printf "  Tramos ZigZag completados        : %d\n",
     scalar @{ $data->[-1]{segments} // [] };
 print "----------------------------\n";
 print "\nPara validar contra TradingView:\n";
-print "  1. Abre el CSV de salida en Excel o Python\n";
+print "  1. Abre el CSV de salida en Excel o un script de Perl\n";
 print "  2. Busca filas donde trend_changed=1 (cambios de tendencia)\n";
 print "  3. Compara pivot_high_bar/price y pivot_low_bar/price con los\n";
 print "     pivotes mostrados por el indicador ZigZag Volume Profile [ChartPrime]\n";
